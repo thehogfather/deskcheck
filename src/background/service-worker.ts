@@ -8,7 +8,9 @@ import {
   appendEvent,
   storeScreenshot,
 } from "../lib/session-store";
-import * as debuggerClient from "../lib/debugger-client";
+import { DebuggerClient } from "../lib/debugger-client";
+
+const debuggerClient = new DebuggerClient();
 import { exportSession, getExportFilename } from "../lib/exporter";
 import { bytesToBase64 } from "../lib/encoding";
 import { takeScreenshot } from "./screenshot";
