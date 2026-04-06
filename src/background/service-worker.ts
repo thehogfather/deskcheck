@@ -78,8 +78,15 @@ async function handleMessage(
   sender: chrome.runtime.MessageSender,
 ) {
   switch (msg.type) {
-    case "GET_SESSION_STATE":
-      return { recording, sessionId: activeSessionId, activeTabId };
+    case "GET_SESSION_STATE": {
+      const storedSession = await getSession();
+      return {
+        recording,
+        sessionId: activeSessionId,
+        activeTabId,
+        hasExportableSession: storedSession != null,
+      };
+    }
 
     case "START_SESSION": {
       activeTabId = msg.tabId;
@@ -202,13 +209,8 @@ async function handleMessage(
       const screenshots = await getScreenshots();
       const zipBytes = exportSession(session, events, screenshots);
       const filename = getExportFilename(session);
-      const blob = new Blob([zipBytes.buffer as ArrayBuffer], { type: "application/zip" });
-      const blobUrl = URL.createObjectURL(blob);
-      try {
-        await chrome.downloads.download({ url: blobUrl, filename, saveAs: true });
-      } finally {
-        URL.revokeObjectURL(blobUrl);
-      }
+      const dataUrl = `data:application/zip;base64,${zipToBase64(zipBytes)}`;
+      await chrome.downloads.download({ url: dataUrl, filename, saveAs: true });
       await clearSession();
       return { filename };
     }
@@ -262,6 +264,21 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 // ── Helpers ──
+
+function zipToBase64(bytes: Uint8Array): string {
+  // Encode in 8190-byte chunks (multiple of 3) to avoid OOM on large sessions
+  const CHUNK = 8190;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
+    let bin = "";
+    for (let j = 0; j < slice.length; j++) {
+      bin += String.fromCharCode(slice[j]);
+    }
+    parts.push(btoa(bin));
+  }
+  return parts.join("");
+}
 
 async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

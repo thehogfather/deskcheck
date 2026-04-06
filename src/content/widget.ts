@@ -42,45 +42,38 @@ export function showWidget() {
   style.textContent = widgetCss;
   shadow.appendChild(style);
 
-  // Build widget DOM
-  const recDot = el("span", { class: "deskcheck-rec-dot" });
-  const titleSpan = el("span", { class: "deskcheck-header-title" }, [
-    recDot,
-    "DeskCheck",
-  ]);
-  const minimizeBtn = el("button", {
-    class: "deskcheck-minimize",
-    title: "Minimize",
-  }, ["—"]);
-  const header = el("div", { class: "deskcheck-header" }, [
-    titleSpan,
-    minimizeBtn,
-  ]);
+  // ── Header ──
+  const recDot = el("span", { class: "dc-rec-dot" });
+  const titleSpan = el("span", { class: "dc-header-title" }, [recDot, "DeskCheck"]);
+  const minimizeBtn = el("button", { class: "dc-minimize", title: "Minimize" }, ["\u2014"]);
+  const header = el("div", { class: "dc-header" }, [titleSpan, minimizeBtn]);
 
+  // ── Annotation ──
   const textarea = document.createElement("textarea");
-  textarea.className = "deskcheck-textarea";
+  textarea.className = "dc-textarea";
   textarea.placeholder = "What did you expect? What happened instead?";
 
-  const elementContainer = el("div", { class: "deskcheck-element-container" });
+  const elementContainer = el("div", { class: "dc-element-container" });
 
-  const pickBtn = el("button", { class: "deskcheck-btn" }, ["Select Element"]);
-  const submitBtn = el(
-    "button",
-    { class: "deskcheck-btn deskcheck-btn-primary", disabled: "true" },
-    ["Add Annotation"],
-  );
-  const actions = el("div", { class: "deskcheck-actions" }, [
-    pickBtn,
-    submitBtn,
-  ]);
+  const pickBtn = el("button", { class: "dc-btn" }, ["Select Element"]);
+  const submitBtn = el("button", { class: "dc-btn dc-btn-primary", disabled: "true" }, ["Add Note"]);
+  const annotationActions = el("div", { class: "dc-row" }, [pickBtn, submitBtn]);
 
-  const body = el("div", { class: "deskcheck-body" }, [
+  // ── Session controls ──
+  const screenshotBtn = el("button", { class: "dc-btn" }, ["Screenshot"]);
+  const stopBtn = el("button", { class: "dc-btn dc-btn-danger" }, ["Stop & Download"]);
+  const sessionActions = el("div", { class: "dc-row" }, [screenshotBtn, stopBtn]);
+
+  // ── Body ──
+  const body = el("div", { class: "dc-body" }, [
     textarea,
     elementContainer,
-    actions,
+    annotationActions,
+    el("div", { class: "dc-divider" }),
+    sessionActions,
   ]);
 
-  const widget = el("div", { class: "deskcheck-widget" }, [header, body]);
+  const widget = el("div", { class: "dc-widget" }, [header, body]);
   shadow.appendChild(widget);
   document.body.appendChild(widgetHost);
 
@@ -96,25 +89,20 @@ export function showWidget() {
   // ── Minimize ──
   minimizeBtn.addEventListener("click", () => {
     widget.classList.toggle("minimized");
-    minimizeBtn.textContent = widget.classList.contains("minimized")
-      ? "+"
-      : "—";
+    minimizeBtn.textContent = widget.classList.contains("minimized") ? "+" : "\u2014";
   });
 
   // ── Element picker ──
   function showSelectedElement(info: ElementInfo) {
     elementContainer.replaceChildren();
-    const label = `${info.tag}${info.id ? "#" + info.id : ""} → ${info.selector}`;
+    const label = `${info.tag}${info.id ? "#" + info.id : ""} \u2192 ${info.selector}`;
     const labelSpan = el("span", {}, [label]);
     const clearBtn = el("button", { title: "Remove" }, ["\u00d7"]);
     clearBtn.addEventListener("click", () => {
       selectedElement = null;
       elementContainer.replaceChildren();
     });
-    const row = el("div", { class: "deskcheck-selected-element" }, [
-      labelSpan,
-      clearBtn,
-    ]);
+    const row = el("div", { class: "dc-selected-element" }, [labelSpan, clearBtn]);
     elementContainer.appendChild(row);
   }
 
@@ -140,7 +128,6 @@ export function showWidget() {
     (submitBtn as HTMLButtonElement).disabled = true;
     submitBtn.textContent = "Saving...";
 
-    // If element selected with bounding box, crop a screenshot of just that element
     let elementScreenshotData: string | undefined;
     if (selectedElement?.bounding_box) {
       try {
@@ -168,16 +155,45 @@ export function showWidget() {
         elementScreenshotData,
       } as Message);
 
-      // Reset form
       textarea.value = "";
       selectedElement = null;
       elementContainer.replaceChildren();
-      submitBtn.textContent = "Add Annotation";
+      submitBtn.textContent = "Add Note";
       updateSubmitState();
     } catch {
-      submitBtn.textContent = "Failed — retry?";
+      submitBtn.textContent = "Failed \u2014 retry?";
       (submitBtn as HTMLButtonElement).disabled = false;
     }
+  });
+
+  // ── Screenshot ──
+  screenshotBtn.addEventListener("click", async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "TAKE_SCREENSHOT",
+        trigger: "manual",
+      } as Message);
+      screenshotBtn.textContent = response?.screenshotId ? "Captured!" : "Failed";
+    } catch {
+      screenshotBtn.textContent = "Failed";
+    }
+    setTimeout(() => { screenshotBtn.textContent = "Screenshot"; }, 1000);
+  });
+
+  // ── Stop & Download ──
+  stopBtn.addEventListener("click", async () => {
+    stopBtn.textContent = "Exporting...";
+    (stopBtn as HTMLButtonElement).disabled = true;
+    try {
+      await chrome.runtime.sendMessage({ type: "STOP_SESSION" } as Message);
+      const response = await chrome.runtime.sendMessage({ type: "EXPORT_SESSION" } as Message);
+      if (response?.error) {
+        stopBtn.textContent = response.error;
+      }
+    } catch (e) {
+      stopBtn.textContent = "Export failed";
+    }
+    // Widget will be removed by the session-stopped handler
   });
 }
 
@@ -191,14 +207,12 @@ export function hideWidget() {
 
 export function focusWidget() {
   if (!widgetShadow) return;
-  const widget = widgetShadow.querySelector(".deskcheck-widget");
+  const widget = widgetShadow.querySelector(".dc-widget");
   if (widget?.classList.contains("minimized")) {
     widget.classList.remove("minimized");
-    const btn = widgetShadow.querySelector(".deskcheck-minimize");
-    if (btn) btn.textContent = "—";
+    const btn = widgetShadow.querySelector(".dc-minimize");
+    if (btn) btn.textContent = "\u2014";
   }
-  const textarea = widgetShadow.querySelector(
-    ".deskcheck-textarea",
-  ) as HTMLTextAreaElement | null;
+  const textarea = widgetShadow.querySelector(".dc-textarea") as HTMLTextAreaElement | null;
   textarea?.focus();
 }
