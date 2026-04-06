@@ -1,6 +1,6 @@
 import { TimelineEventInput, Viewport } from "../types";
 import { SCROLL_THROTTLE, RESIZE_THROTTLE } from "../constants";
-import { getElementInfo, isExaminerUi, throttle } from "../lib/dom-utils";
+import { getElementInfo, isDeskCheckUi, throttle } from "../lib/dom-utils";
 
 type EventCallback = (event: TimelineEventInput) => void;
 
@@ -24,7 +24,7 @@ export function startRecording(onEvent: EventCallback): () => void {
   // ── Click ──
   listen(document, "click", (e) => {
     const target = e.target as Element;
-    if (!target || isExaminerUi(target)) return;
+    if (!target || isDeskCheckUi(target)) return;
     onEvent({
       timestamp: now(),
       type: "interaction",
@@ -38,7 +38,7 @@ export function startRecording(onEvent: EventCallback): () => void {
   // ── Input ──
   listen(document, "input", (e) => {
     const target = e.target as HTMLInputElement | HTMLTextAreaElement;
-    if (!target?.tagName || isExaminerUi(target)) return;
+    if (!target?.tagName || isDeskCheckUi(target)) return;
     const tag = target.tagName.toLowerCase();
     if (tag !== "input" && tag !== "textarea" && tag !== "select") return;
 

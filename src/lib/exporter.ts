@@ -89,5 +89,5 @@ export function buildSummary(events: TimelineEvent[]): SessionSummary {
 
 export function getExportFilename(session: SessionMetadata): string {
   const ts = session.start_time.replace(/[:.]/g, "-").replace("Z", "");
-  return `examiner-session-${ts}.zip`;
+  return `deskcheck-session-${ts}.zip`;
 }

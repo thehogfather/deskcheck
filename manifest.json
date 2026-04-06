@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Examiner",
+  "name": "DeskCheck",
   "description": "Debug session recorder for AI-assisted bug fixing",
   "version": "0.2.0",
   "icons": {

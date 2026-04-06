@@ -1,7 +1,7 @@
 // Storage keys
-export const STORAGE_SESSION = "examiner_session";
-export const STORAGE_EVENTS = "examiner_events";
-export const STORAGE_SCREENSHOTS = "examiner_screenshots";
+export const STORAGE_SESSION = "deskcheck_session";
+export const STORAGE_EVENTS = "deskcheck_events";
+export const STORAGE_SCREENSHOTS = "deskcheck_screenshots";
 
 // CDP domains to enable
 export const CDP_DOMAINS = ["Network", "Log", "Runtime"] as const;

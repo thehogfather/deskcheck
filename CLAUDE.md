@@ -1,4 +1,4 @@
-# Examiner
+# DeskCheck
 
 Chrome extension (Manifest V3) that records debugging sessions for AI-assisted bug fixing.
 

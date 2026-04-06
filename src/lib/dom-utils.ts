@@ -64,11 +64,11 @@ export function getElementInfo(
   return info;
 }
 
-export function isExaminerUi(el: Element): boolean {
+export function isDeskCheckUi(el: Element): boolean {
   return (
-    !!el.closest("#examiner-widget-host, #examiner-picker-host") ||
-    el.id === "examiner-widget-host" ||
-    el.id === "examiner-picker-host"
+    !!el.closest("#deskcheck-widget-host, #deskcheck-picker-host") ||
+    el.id === "deskcheck-widget-host" ||
+    el.id === "deskcheck-picker-host"
   );
 }
 

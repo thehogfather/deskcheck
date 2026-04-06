@@ -24,7 +24,7 @@ export async function takeScreenshot(
     });
     return { id, dataUrl };
   } catch (e) {
-    console.error("[Examiner] Screenshot failed:", e);
+    console.error("[DeskCheck] Screenshot failed:", e);
     return null;
   }
 }

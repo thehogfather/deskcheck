@@ -64,7 +64,7 @@ chrome.runtime.onMessage.addListener(
     handleMessage(msg, sender)
       .then(sendResponse)
       .catch((err) => {
-        console.error("[Examiner] Message handler error:", err);
+        console.error("[DeskCheck] Message handler error:", err);
         sendResponse({ error: String(err) });
       });
     return true;
@@ -92,7 +92,7 @@ async function handleMessage(
             appendEvent(event);
           });
         } catch (e) {
-          console.warn("[Examiner] Failed to attach debugger:", e);
+          console.warn("[DeskCheck] Failed to attach debugger:", e);
         }
 
         try {
@@ -101,7 +101,7 @@ async function handleMessage(
             files: ["src/content/index.js"],
           });
         } catch (e) {
-          console.warn("[Examiner] Failed to inject content script:", e);
+          console.warn("[DeskCheck] Failed to inject content script:", e);
         }
 
         await new Promise((r) => setTimeout(r, 100));

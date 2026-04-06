@@ -33,7 +33,7 @@ export function showWidget() {
   if (widgetHost) return;
 
   widgetHost = document.createElement("div");
-  widgetHost.id = "examiner-widget-host";
+  widgetHost.id = "deskcheck-widget-host";
   const shadow = widgetHost.attachShadow({ mode: "open" });
   widgetShadow = shadow;
 
@@ -43,44 +43,44 @@ export function showWidget() {
   shadow.appendChild(style);
 
   // Build widget DOM
-  const recDot = el("span", { class: "examiner-rec-dot" });
-  const titleSpan = el("span", { class: "examiner-header-title" }, [
+  const recDot = el("span", { class: "deskcheck-rec-dot" });
+  const titleSpan = el("span", { class: "deskcheck-header-title" }, [
     recDot,
-    "Examiner",
+    "DeskCheck",
   ]);
   const minimizeBtn = el("button", {
-    class: "examiner-minimize",
+    class: "deskcheck-minimize",
     title: "Minimize",
   }, ["—"]);
-  const header = el("div", { class: "examiner-header" }, [
+  const header = el("div", { class: "deskcheck-header" }, [
     titleSpan,
     minimizeBtn,
   ]);
 
   const textarea = document.createElement("textarea");
-  textarea.className = "examiner-textarea";
+  textarea.className = "deskcheck-textarea";
   textarea.placeholder = "What did you expect? What happened instead?";
 
-  const elementContainer = el("div", { class: "examiner-element-container" });
+  const elementContainer = el("div", { class: "deskcheck-element-container" });
 
-  const pickBtn = el("button", { class: "examiner-btn" }, ["Select Element"]);
+  const pickBtn = el("button", { class: "deskcheck-btn" }, ["Select Element"]);
   const submitBtn = el(
     "button",
-    { class: "examiner-btn examiner-btn-primary", disabled: "true" },
+    { class: "deskcheck-btn deskcheck-btn-primary", disabled: "true" },
     ["Add Annotation"],
   );
-  const actions = el("div", { class: "examiner-actions" }, [
+  const actions = el("div", { class: "deskcheck-actions" }, [
     pickBtn,
     submitBtn,
   ]);
 
-  const body = el("div", { class: "examiner-body" }, [
+  const body = el("div", { class: "deskcheck-body" }, [
     textarea,
     elementContainer,
     actions,
   ]);
 
-  const widget = el("div", { class: "examiner-widget" }, [header, body]);
+  const widget = el("div", { class: "deskcheck-widget" }, [header, body]);
   shadow.appendChild(widget);
   document.body.appendChild(widgetHost);
 
@@ -111,7 +111,7 @@ export function showWidget() {
       selectedElement = null;
       elementContainer.replaceChildren();
     });
-    const row = el("div", { class: "examiner-selected-element" }, [
+    const row = el("div", { class: "deskcheck-selected-element" }, [
       labelSpan,
       clearBtn,
     ]);
@@ -186,14 +186,14 @@ export function hideWidget() {
 
 export function focusWidget() {
   if (!widgetShadow) return;
-  const widget = widgetShadow.querySelector(".examiner-widget");
+  const widget = widgetShadow.querySelector(".deskcheck-widget");
   if (widget?.classList.contains("minimized")) {
     widget.classList.remove("minimized");
-    const btn = widgetShadow.querySelector(".examiner-minimize");
+    const btn = widgetShadow.querySelector(".deskcheck-minimize");
     if (btn) btn.textContent = "—";
   }
   const textarea = widgetShadow.querySelector(
-    ".examiner-textarea",
+    ".deskcheck-textarea",
   ) as HTMLTextAreaElement | null;
   textarea?.focus();
 }

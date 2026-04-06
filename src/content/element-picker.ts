@@ -5,7 +5,7 @@ type PickerCallback = (info: ElementInfo | null) => void;
 
 export function startPicker(onPick: PickerCallback): () => void {
   const host = document.createElement("div");
-  host.id = "examiner-picker-host";
+  host.id = "deskcheck-picker-host";
   const shadow = host.attachShadow({ mode: "closed" });
 
   const overlay = document.createElement("div");
@@ -44,7 +44,7 @@ export function startPicker(onPick: PickerCallback): () => void {
     overlay.style.pointerEvents = "none";
     const el = document.elementFromPoint(x, y);
     overlay.style.pointerEvents = "auto";
-    if (el?.closest("#examiner-picker-host, #examiner-widget-host")) {
+    if (el?.closest("#deskcheck-picker-host, #deskcheck-widget-host")) {
       return null;
     }
     return el;

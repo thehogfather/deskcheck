@@ -153,7 +153,7 @@ describe("getExportFilename", () => {
       start_time: "2026-04-06T14:30:00.000Z",
     });
     expect(getExportFilename(session)).toBe(
-      "examiner-session-2026-04-06T14-30-00-000.zip",
+      "deskcheck-session-2026-04-06T14-30-00-000.zip",
     );
   });
 });

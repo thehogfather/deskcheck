@@ -184,12 +184,12 @@ export class DebuggerClient {
     reason: string,
   ) {
     if (source.tabId !== this.attachedTabId) return;
-    console.warn("[Examiner] Debugger detached:", reason);
+    console.warn("[DeskCheck] Debugger detached:", reason);
     this.emit({
       timestamp: new Date().toISOString(),
       type: "console_error",
       level: "warning",
-      message: `[Examiner] DevTools capture interrupted: ${reason}. Console and network errors may not be recorded until session restart.`,
+      message: `[DeskCheck] DevTools capture interrupted: ${reason}. Console and network errors may not be recorded until session restart.`,
       page_url: this.pageUrl,
     });
     this.attachedTabId = null;

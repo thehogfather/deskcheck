@@ -1,13 +1,13 @@
 # Changelog
 
-All notable changes to Examiner will be documented in this file.
+All notable changes to DeskCheck will be documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [0.2.0] - 2026-04-06
 
 ### Changed
-- Extracted shared DOM utilities (getSelector, getElementInfo, throttle, isExaminerUi) to `src/lib/dom-utils.ts`
+- Extracted shared DOM utilities (getSelector, getElementInfo, throttle, isDeskCheckUi) to `src/lib/dom-utils.ts`
 - Extracted cropScreenshot to `src/lib/image-utils.ts`
 - Decoupled exporter from session-store — `exportSession()` is now a pure function
 - Extracted takeScreenshot to `src/background/screenshot.ts`
@@ -37,4 +37,4 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Export as zip (session.json + screenshots)
 - Keyboard shortcuts: Alt+Shift+R (toggle session), Alt+Shift+S (screenshot), Alt+Shift+A (annotation)
 - Chrome extension noise filtering (chrome-extension:// URLs excluded)
-- Examiner UI click filtering (widget/picker interactions excluded from timeline)
+- DeskCheck UI click filtering (widget/picker interactions excluded from timeline)

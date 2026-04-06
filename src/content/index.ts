@@ -4,7 +4,7 @@ import { startRecording } from "./recorder";
 import { showWidget, hideWidget, focusWidget } from "./widget";
 
 // Prevent duplicate injection (manifest + programmatic)
-const GUARD = "__examiner_loaded__";
+const GUARD = "__deskcheck_loaded__";
 if (!(window as any)[GUARD]) {
   (window as any)[GUARD] = true;
   init();

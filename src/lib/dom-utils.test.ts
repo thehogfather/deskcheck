@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getSelector, getElementInfo, isExaminerUi, throttle } from "./dom-utils";
+import { getSelector, getElementInfo, isDeskCheckUi, throttle } from "./dom-utils";
 
 // Helper to set up DOM fixtures using safe DOM APIs
 function setBody(...children: Element[]) {
@@ -137,30 +137,30 @@ describe("getElementInfo", () => {
   });
 });
 
-describe("isExaminerUi", () => {
+describe("isDeskCheckUi", () => {
   beforeEach(() => {
     document.body.replaceChildren();
   });
 
-  it("returns true for examiner widget host", () => {
-    const host = create("div", { id: "examiner-widget-host" });
+  it("returns true for deskcheck widget host", () => {
+    const host = create("div", { id: "deskcheck-widget-host" });
     setBody(host);
-    expect(isExaminerUi(host)).toBe(true);
+    expect(isDeskCheckUi(host)).toBe(true);
   });
 
-  it("returns true for child of examiner widget host", () => {
-    const host = create("div", { id: "examiner-widget-host" }, [
+  it("returns true for child of deskcheck widget host", () => {
+    const host = create("div", { id: "deskcheck-widget-host" }, [
       create("button", {}, ["Click"]),
     ]);
     setBody(host);
     const btn = host.querySelector("button")!;
-    expect(isExaminerUi(btn)).toBe(true);
+    expect(isDeskCheckUi(btn)).toBe(true);
   });
 
   it("returns false for regular page element", () => {
     const btn = create("button", {}, ["Click"]);
     setBody(btn);
-    expect(isExaminerUi(btn)).toBe(false);
+    expect(isDeskCheckUi(btn)).toBe(false);
   });
 });
 
