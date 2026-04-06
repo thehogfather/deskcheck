@@ -22,18 +22,19 @@ status: draft
 
 ## Priority: Now
 
-### 1. Session size indicator
+### 1. Session size and duration indicator
 - **Persona**: Bug Reporter
-- **Goal**: Prevent silent browser crashes from oversized sessions
+- **Goal**: Prevent silent browser crashes from oversized sessions and give users a sense of how long they've been recording
 - **Impact**: High | **Effort**: Small
-- **Description**: Show a live session size estimate in the widget overlay (e.g., "12 events, 3 screenshots, ~4.2 MB"). Warn the user when the session approaches a dangerous size. The indicator should remain valuable regardless of persistence backend — it's a user-facing metric about how large the recording is, not an implementation detail of where it's stored.
-- **Constraints**: The `unlimitedStorage` permission removes the 10 MB chrome.storage.local quota, but the real ceiling is service worker memory (~512 MB). Each retina screenshot is 2-5 MB as a base64 data URL. The `appendEvent()` read-modify-write cycle and the export path (load all → zip → base64) are the most likely OOM crash points. The indicator should estimate total in-memory footprint, not just storage quota usage.
+- **Description**: Show live session metrics in the widget overlay: elapsed duration (e.g., "3m 42s"), event/screenshot counts, and estimated size in MB (e.g., "12 events, 3 screenshots, ~4.2 MB"). Warn the user when the session approaches a dangerous size. Both metrics should remain valuable regardless of persistence backend — they're user-facing measures of the recording, not implementation details of where it's stored.
+- **Constraints**: The `unlimitedStorage` permission removes the 10 MB chrome.storage.local quota, but the real ceiling is service worker memory (~512 MB). Each retina screenshot is 2-5 MB as a base64 data URL. The `appendEvent()` read-modify-write cycle and the export path (load all → zip → base64) are the most likely OOM crash points. The size indicator should estimate total in-memory footprint, not just storage quota usage.
 - **Definition of done**:
+  - [ ] Widget displays live elapsed duration since session start (updating every second)
   - [ ] Widget displays live count of events and screenshots
   - [ ] Widget displays estimated session size in MB
   - [ ] Warning appears when estimated size exceeds a configurable threshold (default ~50 MB)
   - [ ] Size metric is computed from actual data, not storage quota
-  - [ ] Indicator works correctly after feature #2 (incremental persistence) is implemented — it shows session size, not storage backend details
+  - [ ] Both duration and size indicators work correctly after feature #5 (incremental persistence) is implemented
 
 ### 2. Sensitive data warnings
 - **Persona**: Bug Reporter
