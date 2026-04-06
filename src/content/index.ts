@@ -35,23 +35,6 @@ function init() {
     hideWidget();
   }
 
-  // Check with the service worker whether this tab is the session tab
-  async function isActiveTab(): Promise<boolean> {
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: "GET_SESSION_STATE",
-      } as Message);
-      if (!response?.recording || !response.activeTabId) return false;
-      // Content scripts don't know their own tab ID, so ask via a round-trip:
-      // the service worker's RECORD_EVENT handler filters by tab,
-      // but for activation we rely on SESSION_STARTED being sent only to activeTabId
-      // and this fallback checking the stored tab_id matches
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   // ── Primary: listen for messages from service worker ──
   // SESSION_STARTED is only sent to the active tab, so this is already scoped
 

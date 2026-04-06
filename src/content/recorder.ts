@@ -1,77 +1,8 @@
-import { ElementInfo, TimelineEventInput, Viewport } from "../types";
+import { TimelineEventInput, Viewport } from "../types";
 import { SCROLL_THROTTLE, RESIZE_THROTTLE } from "../constants";
+import { getElementInfo, isExaminerUi, throttle } from "../lib/dom-utils";
 
 type EventCallback = (event: TimelineEventInput) => void;
-
-// ── CSS Selector Generation ──
-
-function getSelector(el: Element): string {
-  if (el.id) return `#${CSS.escape(el.id)}`;
-
-  const testId = el.getAttribute("data-testid");
-  if (testId) return `[data-testid="${CSS.escape(testId)}"]`;
-
-  // Check other data-* attributes
-  for (const attr of el.attributes) {
-    if (attr.name.startsWith("data-") && attr.name !== "data-testid") {
-      return `[${attr.name}="${CSS.escape(attr.value)}"]`;
-    }
-  }
-
-  // Build a path using tag + nth-child
-  const parts: string[] = [];
-  let current: Element | null = el;
-  while (current && current !== document.documentElement) {
-    let selector = current.tagName.toLowerCase();
-    const parent: Element | null = current.parentElement;
-    if (parent) {
-      const currentTag = current.tagName;
-      const siblings = Array.from(parent.children).filter(
-        (s: Element) => s.tagName === currentTag,
-      );
-      if (siblings.length > 1) {
-        const index = siblings.indexOf(current) + 1;
-        selector += `:nth-of-type(${index})`;
-      }
-    }
-    parts.unshift(selector);
-    current = parent;
-    // Keep paths short — stop at a unique ID ancestor
-    if (current?.id) {
-      parts.unshift(`#${CSS.escape(current.id)}`);
-      break;
-    }
-  }
-  return parts.join(" > ");
-}
-
-function getElementInfo(el: Element): ElementInfo {
-  return {
-    tag: el.tagName.toLowerCase(),
-    id: el.id || undefined,
-    class: el.className || undefined,
-    text: (el.textContent ?? "").trim().slice(0, 100) || undefined,
-    selector: getSelector(el),
-  };
-}
-
-// ── Throttle helper ──
-
-function throttle<T extends (...args: any[]) => void>(
-  fn: T,
-  ms: number,
-): (...args: Parameters<T>) => void {
-  let last = 0;
-  return (...args) => {
-    const now = Date.now();
-    if (now - last >= ms) {
-      last = now;
-      fn(...args);
-    }
-  };
-}
-
-// ── Recorder ──
 
 export function startRecording(onEvent: EventCallback): () => void {
   const pageUrl = () => location.href;
@@ -88,12 +19,6 @@ export function startRecording(onEvent: EventCallback): () => void {
     cleanups.push(() =>
       target.removeEventListener(event, handler as EventListener, options),
     );
-  }
-
-  function isExaminerUi(el: Element): boolean {
-    return !!el.closest("#examiner-widget-host, #examiner-picker-host") ||
-      el.id === "examiner-widget-host" ||
-      el.id === "examiner-picker-host";
   }
 
   // ── Click ──
@@ -117,7 +42,6 @@ export function startRecording(onEvent: EventCallback): () => void {
     const tag = target.tagName.toLowerCase();
     if (tag !== "input" && tag !== "textarea" && tag !== "select") return;
 
-    // Don't record password values
     const value =
       target instanceof HTMLInputElement && target.type === "password"
         ? "[password]"
@@ -194,7 +118,6 @@ export function startRecording(onEvent: EventCallback): () => void {
   observer.observe(document.body, { childList: true, subtree: true });
   cleanups.push(() => observer.disconnect());
 
-  // Return cleanup function
   return () => {
     for (const cleanup of cleanups) cleanup();
   };

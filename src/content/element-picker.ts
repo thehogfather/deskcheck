@@ -1,21 +1,19 @@
 import { ElementInfo } from "../types";
+import { getElementInfo } from "../lib/dom-utils";
 
 type PickerCallback = (info: ElementInfo | null) => void;
 
 export function startPicker(onPick: PickerCallback): () => void {
-  // Create shadow host for isolation
   const host = document.createElement("div");
   host.id = "examiner-picker-host";
   const shadow = host.attachShadow({ mode: "closed" });
 
-  // Overlay that covers the entire page
   const overlay = document.createElement("div");
   overlay.style.cssText = `
     position: fixed; inset: 0; z-index: 2147483647;
     cursor: crosshair;
   `;
 
-  // Highlight box that follows the hovered element
   const highlight = document.createElement("div");
   highlight.style.cssText = `
     position: fixed; pointer-events: none;
@@ -26,7 +24,6 @@ export function startPicker(onPick: PickerCallback): () => void {
     transition: all 0.05s ease;
   `;
 
-  // Label showing element tag/class
   const label = document.createElement("div");
   label.style.cssText = `
     position: fixed; pointer-events: none;
@@ -44,11 +41,9 @@ export function startPicker(onPick: PickerCallback): () => void {
   let hoveredElement: Element | null = null;
 
   function getElementUnder(x: number, y: number): Element | null {
-    // Temporarily hide overlay to find element underneath
     overlay.style.pointerEvents = "none";
     const el = document.elementFromPoint(x, y);
     overlay.style.pointerEvents = "auto";
-    // Don't select our own UI
     if (el?.closest("#examiner-picker-host, #examiner-widget-host")) {
       return null;
     }
@@ -74,51 +69,6 @@ export function startPicker(onPick: PickerCallback): () => void {
     label.style.display = "block";
   }
 
-  function getSelector(el: Element): string {
-    if (el.id) return `#${CSS.escape(el.id)}`;
-    const testId = el.getAttribute("data-testid");
-    if (testId) return `[data-testid="${CSS.escape(testId)}"]`;
-    const parts: string[] = [];
-    let current: Element | null = el;
-    while (current && current !== document.documentElement) {
-      let sel = current.tagName.toLowerCase();
-      const parent: Element | null = current.parentElement;
-      if (parent) {
-        const tag = current.tagName;
-        const siblings = Array.from(parent.children).filter(
-          (s: Element) => s.tagName === tag,
-        );
-        if (siblings.length > 1) {
-          sel += `:nth-of-type(${siblings.indexOf(current) + 1})`;
-        }
-      }
-      parts.unshift(sel);
-      current = parent;
-      if (current?.id) {
-        parts.unshift(`#${CSS.escape(current.id)}`);
-        break;
-      }
-    }
-    return parts.join(" > ");
-  }
-
-  function getElementInfo(el: Element): ElementInfo {
-    const rect = el.getBoundingClientRect();
-    return {
-      tag: el.tagName.toLowerCase(),
-      id: el.id || undefined,
-      class: el.className || undefined,
-      text: (el.textContent ?? "").trim().slice(0, 100) || undefined,
-      selector: getSelector(el),
-      bounding_box: {
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      },
-    };
-  }
-
   function handleMouseMove(e: MouseEvent) {
     const el = getElementUnder(e.clientX, e.clientY);
     if (el && el !== hoveredElement) {
@@ -132,7 +82,7 @@ export function startPicker(onPick: PickerCallback): () => void {
     e.stopPropagation();
     const el = getElementUnder(e.clientX, e.clientY);
     cleanup();
-    onPick(el ? getElementInfo(el) : null);
+    onPick(el ? getElementInfo(el, { includeBoundingBox: true }) : null);
   }
 
   function handleKeyDown(e: KeyboardEvent) {
