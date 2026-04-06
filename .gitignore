@@ -1,3 +1,6 @@
 node_modules/
 dist/
 *.tsbuildinfo
+.orchestrator/evidence/screenshots/*
+.orchestrator/orchestration.log
+.orchestrator/session-summary.md
