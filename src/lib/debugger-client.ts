@@ -8,6 +8,24 @@ export function isExtensionUrl(url: string | undefined): boolean {
   return !!url && url.startsWith("chrome-extension://");
 }
 
+const SENSITIVE_HEADERS = new Set([
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "proxy-authorization",
+  "x-api-key",
+]);
+
+export function sanitizeHeaders(
+  headers: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      ([k]) => !SENSITIVE_HEADERS.has(k.toLowerCase()),
+    ),
+  );
+}
+
 export function formatStackTrace(
   stackTrace: {
     callFrames: Array<{
@@ -109,7 +127,7 @@ export class DebuggerClient {
             url: response.url ?? req?.url ?? "",
             status,
             status_text: response.statusText ?? "",
-            request_headers: response.requestHeaders ?? {},
+            request_headers: sanitizeHeaders(response.requestHeaders ?? {}),
             page_url: this.pageUrl,
           });
         }

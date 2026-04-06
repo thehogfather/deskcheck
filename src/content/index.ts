@@ -14,10 +14,17 @@ function init() {
   let stopRecording: (() => void) | null = null;
   let isRecording = false;
 
+  let sendFailCount = 0;
   function sendEvent(event: TimelineEventInput) {
     chrome.runtime
       .sendMessage({ type: "RECORD_EVENT", event } as Message)
-      .catch(() => {});
+      .then(() => { sendFailCount = 0; })
+      .catch((err) => {
+        sendFailCount++;
+        if (sendFailCount === 1 || sendFailCount % 50 === 0) {
+          console.warn(`[DeskCheck] Failed to send event (failures: ${sendFailCount}):`, err);
+        }
+      });
   }
 
   function startSession() {
@@ -60,7 +67,9 @@ function init() {
         startSession();
       }
     })
-    .catch(() => {});
+    .catch((err) => {
+      console.warn("[DeskCheck] Could not check session state:", err);
+    });
 
   // ── Fallback 2: watch storage for session changes ──
   // When a new session appears, only start if this tab matches

@@ -34,7 +34,7 @@ export function showWidget() {
 
   widgetHost = document.createElement("div");
   widgetHost.id = "deskcheck-widget-host";
-  const shadow = widgetHost.attachShadow({ mode: "open" });
+  const shadow = widgetHost.attachShadow({ mode: "closed" });
   widgetShadow = shadow;
 
   // Inject styles
@@ -160,19 +160,24 @@ export function showWidget() {
       }
     }
 
-    await chrome.runtime.sendMessage({
-      type: "ADD_ANNOTATION",
-      text,
-      element: selectedElement ?? undefined,
-      elementScreenshotData,
-    } as Message);
+    try {
+      await chrome.runtime.sendMessage({
+        type: "ADD_ANNOTATION",
+        text,
+        element: selectedElement ?? undefined,
+        elementScreenshotData,
+      } as Message);
 
-    // Reset form
-    textarea.value = "";
-    selectedElement = null;
-    elementContainer.replaceChildren();
-    submitBtn.textContent = "Add Annotation";
-    updateSubmitState();
+      // Reset form
+      textarea.value = "";
+      selectedElement = null;
+      elementContainer.replaceChildren();
+      submitBtn.textContent = "Add Annotation";
+      updateSubmitState();
+    } catch {
+      submitBtn.textContent = "Failed — retry?";
+      (submitBtn as HTMLButtonElement).disabled = false;
+    }
   });
 }
 

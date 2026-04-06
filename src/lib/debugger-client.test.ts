@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isExtensionUrl, formatStackTrace } from "./debugger-client";
+import { isExtensionUrl, formatStackTrace, sanitizeHeaders } from "./debugger-client";
 
 describe("isExtensionUrl", () => {
   it("returns true for chrome-extension:// URLs", () => {
@@ -60,5 +60,44 @@ describe("formatStackTrace", () => {
       ],
     });
     expect(result).toContain("(anonymous)");
+  });
+});
+
+describe("sanitizeHeaders", () => {
+  it("strips sensitive headers", () => {
+    const headers = {
+      "Authorization": "Bearer secret-token",
+      "Cookie": "session=abc123",
+      "Content-Type": "application/json",
+      "X-Api-Key": "key-123",
+      "Accept": "text/html",
+    };
+    const result = sanitizeHeaders(headers);
+    expect(result).toEqual({
+      "Content-Type": "application/json",
+      "Accept": "text/html",
+    });
+  });
+
+  it("is case-insensitive", () => {
+    const headers = {
+      "authorization": "Bearer token",
+      "COOKIE": "sid=x",
+      "set-cookie": "foo=bar",
+      "Proxy-Authorization": "Basic abc",
+      "x-request-id": "123",
+    };
+    const result = sanitizeHeaders(headers);
+    expect(result).toEqual({ "x-request-id": "123" });
+  });
+
+  it("returns empty object for all-sensitive headers", () => {
+    const headers = { "Authorization": "Bearer x" };
+    expect(sanitizeHeaders(headers)).toEqual({});
+  });
+
+  it("passes through non-sensitive headers unchanged", () => {
+    const headers = { "Content-Type": "text/plain", "X-Custom": "value" };
+    expect(sanitizeHeaders(headers)).toEqual(headers);
   });
 });

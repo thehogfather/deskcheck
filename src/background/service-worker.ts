@@ -2,6 +2,7 @@ import { Message } from "../types";
 import {
   createSession,
   endSession,
+  clearSession,
   getSession,
   getEvents,
   getScreenshots,
@@ -12,7 +13,6 @@ import { DebuggerClient } from "../lib/debugger-client";
 
 const debuggerClient = new DebuggerClient();
 import { exportSession, getExportFilename } from "../lib/exporter";
-import { bytesToBase64 } from "../lib/encoding";
 import { takeScreenshot } from "./screenshot";
 
 let recording = false;
@@ -31,7 +31,9 @@ async function restoreState() {
   }
 }
 
-restoreState();
+restoreState().catch((err) => {
+  console.error("[DeskCheck] Failed to restore state:", err);
+});
 
 // ── Inject content script into existing tabs on install/update ──
 
@@ -86,6 +88,8 @@ async function handleMessage(
       activeSessionId = session.id;
       setBadge(true);
 
+      const warnings: string[] = [];
+
       if (activeTabId) {
         try {
           await debuggerClient.attach(activeTabId, msg.url, (event) => {
@@ -93,6 +97,7 @@ async function handleMessage(
           });
         } catch (e) {
           console.warn("[DeskCheck] Failed to attach debugger:", e);
+          warnings.push("Could not attach debugger — console and network errors will not be captured. Close DevTools and restart the session.");
         }
 
         try {
@@ -102,6 +107,7 @@ async function handleMessage(
           });
         } catch (e) {
           console.warn("[DeskCheck] Failed to inject content script:", e);
+          warnings.push("Could not inject content script — DOM interactions will not be recorded.");
         }
 
         await new Promise((r) => setTimeout(r, 100));
@@ -114,7 +120,7 @@ async function handleMessage(
           // Content script should pick up via storage.onChanged fallback
         }
       }
-      return { recording: true, sessionId: session.id };
+      return { recording: true, sessionId: session.id, warnings };
     }
 
     case "STOP_SESSION": {
@@ -128,11 +134,9 @@ async function handleMessage(
       setBadge(false);
 
       if (tabToNotify) {
-        try {
-          chrome.tabs.sendMessage(tabToNotify, { type: "SESSION_STOPPED" });
-        } catch {
+        await chrome.tabs.sendMessage(tabToNotify, { type: "SESSION_STOPPED" }).catch(() => {
           // Tab may already be closed
-        }
+        });
       }
       return { recording: false, sessionId: stoppedSessionId };
     }
@@ -198,9 +202,14 @@ async function handleMessage(
       const screenshots = await getScreenshots();
       const zipBytes = exportSession(session, events, screenshots);
       const filename = getExportFilename(session);
-      const base64 = bytesToBase64(zipBytes);
-      const dataUrl = `data:application/zip;base64,${base64}`;
-      await chrome.downloads.download({ url: dataUrl, filename, saveAs: true });
+      const blob = new Blob([zipBytes.buffer as ArrayBuffer], { type: "application/zip" });
+      const blobUrl = URL.createObjectURL(blob);
+      try {
+        await chrome.downloads.download({ url: blobUrl, filename, saveAs: true });
+      } finally {
+        URL.revokeObjectURL(blobUrl);
+      }
+      await clearSession();
       return { filename };
     }
   }
@@ -213,7 +222,7 @@ chrome.commands.onCommand.addListener(async (command) => {
     await takeScreenshot(activeTabId, "manual");
   }
   if (command === "toggle-annotation" && recording && activeTabId) {
-    chrome.tabs.sendMessage(activeTabId, { type: "FOCUS_ANNOTATION" });
+    await chrome.tabs.sendMessage(activeTabId, { type: "FOCUS_ANNOTATION" }).catch(() => {});
   }
   if (command === "toggle-session") {
     const tab = await getActiveTab();
@@ -238,12 +247,17 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (tabId === activeTabId && recording) {
-    await debuggerClient.detach();
-    await endSession();
-    recording = false;
-    activeSessionId = null;
-    activeTabId = null;
-    setBadge(false);
+    try {
+      await debuggerClient.detach();
+      await endSession();
+    } catch (e) {
+      console.error("[DeskCheck] Error during tab close cleanup:", e);
+    } finally {
+      recording = false;
+      activeSessionId = null;
+      activeTabId = null;
+      setBadge(false);
+    }
   }
 });
 

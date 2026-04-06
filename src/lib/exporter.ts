@@ -30,14 +30,18 @@ export function exportSession(
   };
 
   for (const [id, dataUrl] of Object.entries(screenshots)) {
-    const base64 = dataUrl.split(",")[1];
-    if (base64) {
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
+    try {
+      const base64 = dataUrl.split(",")[1];
+      if (base64) {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        zipData[`screenshots/${id}.png`] = bytes;
       }
-      zipData[`screenshots/${id}.png`] = bytes;
+    } catch (e) {
+      console.warn(`[DeskCheck] Skipping corrupted screenshot ${id}:`, e);
     }
   }
 
