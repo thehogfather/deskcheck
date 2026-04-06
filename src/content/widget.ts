@@ -58,7 +58,9 @@ export function showWidget() {
   const sep1 = el("span", { class: "dc-metrics-sep" }, ["\u00b7"]);
   const countSpan = el("span", { class: "dc-counts" }, ["0 events, 0 screenshots"]);
   const sep2 = el("span", { class: "dc-metrics-sep" }, ["\u00b7"]);
-  const sizeSpan = el("span", { class: "dc-size" }, ["0 KB"]);
+  const eventsSizeSpan = el("span", {}, ["0 KB"]);
+  const imgSizeSpan = el("span", {}, ["0 KB"]);
+  const sizeSpan = el("span", { class: "dc-size" }, [eventsSizeSpan, " + ", imgSizeSpan, " img"]);
   const metricsBar = el("div", { class: "dc-metrics-bar" }, [
     durationSpan, sep1, countSpan, sep2, sizeSpan,
   ]);
@@ -114,8 +116,10 @@ export function showWidget() {
       sessionStartTime = metrics.startTime;
     }
     countSpan.textContent = `${metrics.eventCount} events, ${metrics.screenshotCount} screenshots`;
-    sizeSpan.textContent = formatBytes(metrics.estimatedSizeBytes);
-    if (isOverSizeThreshold(metrics.estimatedSizeBytes, SIZE_WARNING_BYTES)) {
+    eventsSizeSpan.textContent = formatBytes(metrics.eventsSizeBytes);
+    imgSizeSpan.textContent = formatBytes(metrics.screenshotsSizeBytes);
+    const totalBytes = metrics.eventsSizeBytes + metrics.screenshotsSizeBytes;
+    if (isOverSizeThreshold(totalBytes, SIZE_WARNING_BYTES)) {
       sizeSpan.classList.add("dc-metrics-warning");
     } else {
       sizeSpan.classList.remove("dc-metrics-warning");

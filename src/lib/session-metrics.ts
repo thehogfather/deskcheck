@@ -7,9 +7,8 @@ export function computeSessionMetrics(
 ): SessionMetrics {
   const screenshotCount = Object.keys(screenshots).length;
 
-  // Estimate size: JSON-serialized events + screenshot data URL strings
-  const eventsSize = JSON.stringify(events).length;
-  const screenshotsSize = Object.values(screenshots).reduce(
+  const eventsSizeBytes = JSON.stringify(events).length;
+  const screenshotsSizeBytes = Object.values(screenshots).reduce(
     (sum, dataUrl) => sum + dataUrl.length,
     0,
   );
@@ -18,7 +17,8 @@ export function computeSessionMetrics(
     startTime,
     eventCount: events.length,
     screenshotCount,
-    estimatedSizeBytes: eventsSize + screenshotsSize,
+    eventsSizeBytes,
+    screenshotsSizeBytes,
   };
 }
 

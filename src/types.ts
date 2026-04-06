@@ -141,7 +141,8 @@ export interface SessionMetrics {
   startTime: string;
   eventCount: number;
   screenshotCount: number;
-  estimatedSizeBytes: number;
+  eventsSizeBytes: number;
+  screenshotsSizeBytes: number;
 }
 
 export type Message =

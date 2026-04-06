@@ -92,7 +92,7 @@ async function handleMessage(
     case "GET_SESSION_METRICS": {
       const session = await getSession();
       if (!session || !recording) {
-        return { startTime: "", eventCount: 0, screenshotCount: 0, estimatedSizeBytes: 0 };
+        return { startTime: "", eventCount: 0, screenshotCount: 0, eventsSizeBytes: 0, screenshotsSizeBytes: 0 };
       }
       const events = await getEvents();
       const screenshots = await getScreenshots();

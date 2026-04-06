@@ -88,7 +88,8 @@ describe("computeSessionMetrics", () => {
     expect(result.startTime).toBe(startTime);
     expect(result.eventCount).toBe(0);
     expect(result.screenshotCount).toBe(0);
-    expect(result.estimatedSizeBytes).toBeGreaterThan(0); // "[]" has length 2
+    expect(result.eventsSizeBytes).toBeGreaterThan(0); // "[]" has length 2
+    expect(result.screenshotsSizeBytes).toBe(0);
   });
 
   it("counts events correctly", () => {
@@ -111,14 +112,15 @@ describe("computeSessionMetrics", () => {
     expect(result.eventCount).toBe(0);
   });
 
-  it("estimates size from events and screenshots", () => {
+  it("estimates size from events and screenshots separately", () => {
     const events = [
       { seq: 1, timestamp: "", type: "interaction", subtype: "click", page_url: "https://example.com" },
     ] as TimelineEvent[];
     const screenshots = { ss_1: "x".repeat(1000) };
 
     const result = computeSessionMetrics(events, screenshots, startTime);
-    expect(result.estimatedSizeBytes).toBeGreaterThanOrEqual(1000);
+    expect(result.eventsSizeBytes).toBeGreaterThan(0);
+    expect(result.screenshotsSizeBytes).toBe(1000);
   });
 
   it("passes through startTime", () => {
