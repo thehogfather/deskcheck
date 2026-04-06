@@ -1,0 +1,226 @@
+import { ElementInfo, Message } from "../types";
+import { startPicker } from "./element-picker";
+import widgetCss from "./widget.css?raw";
+
+let widgetHost: HTMLElement | null = null;
+let widgetShadow: ShadowRoot | null = null;
+let cancelPicker: (() => void) | null = null;
+
+function el(
+  tag: string,
+  attrs?: Record<string, string>,
+  children?: (Node | string)[],
+): HTMLElement {
+  const node = document.createElement(tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") node.className = v;
+      else node.setAttribute(k, v);
+    }
+  }
+  if (children) {
+    for (const child of children) {
+      node.appendChild(
+        typeof child === "string" ? document.createTextNode(child) : child,
+      );
+    }
+  }
+  return node;
+}
+
+export function showWidget() {
+  if (widgetHost) return;
+
+  widgetHost = document.createElement("div");
+  widgetHost.id = "examiner-widget-host";
+  const shadow = widgetHost.attachShadow({ mode: "open" });
+  widgetShadow = shadow;
+
+  // Inject styles
+  const style = document.createElement("style");
+  style.textContent = widgetCss;
+  shadow.appendChild(style);
+
+  // Build widget DOM
+  const recDot = el("span", { class: "examiner-rec-dot" });
+  const titleSpan = el("span", { class: "examiner-header-title" }, [
+    recDot,
+    "Examiner",
+  ]);
+  const minimizeBtn = el("button", {
+    class: "examiner-minimize",
+    title: "Minimize",
+  }, ["—"]);
+  const header = el("div", { class: "examiner-header" }, [
+    titleSpan,
+    minimizeBtn,
+  ]);
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "examiner-textarea";
+  textarea.placeholder = "What did you expect? What happened instead?";
+
+  const elementContainer = el("div", { class: "examiner-element-container" });
+
+  const pickBtn = el("button", { class: "examiner-btn" }, ["Select Element"]);
+  const submitBtn = el(
+    "button",
+    { class: "examiner-btn examiner-btn-primary", disabled: "true" },
+    ["Add Annotation"],
+  );
+  const actions = el("div", { class: "examiner-actions" }, [
+    pickBtn,
+    submitBtn,
+  ]);
+
+  const body = el("div", { class: "examiner-body" }, [
+    textarea,
+    elementContainer,
+    actions,
+  ]);
+
+  const widget = el("div", { class: "examiner-widget" }, [header, body]);
+  shadow.appendChild(widget);
+  document.body.appendChild(widgetHost);
+
+  // ── State ──
+  let selectedElement: ElementInfo | null = null;
+
+  // ── Enable/disable submit ──
+  function updateSubmitState() {
+    (submitBtn as HTMLButtonElement).disabled = !textarea.value.trim();
+  }
+  textarea.addEventListener("input", updateSubmitState);
+
+  // ── Minimize ──
+  minimizeBtn.addEventListener("click", () => {
+    widget.classList.toggle("minimized");
+    minimizeBtn.textContent = widget.classList.contains("minimized")
+      ? "+"
+      : "—";
+  });
+
+  // ── Element picker ──
+  function showSelectedElement(info: ElementInfo) {
+    elementContainer.replaceChildren();
+    const label = `${info.tag}${info.id ? "#" + info.id : ""} → ${info.selector}`;
+    const labelSpan = el("span", {}, [label]);
+    const clearBtn = el("button", { title: "Remove" }, ["\u00d7"]);
+    clearBtn.addEventListener("click", () => {
+      selectedElement = null;
+      elementContainer.replaceChildren();
+    });
+    const row = el("div", { class: "examiner-selected-element" }, [
+      labelSpan,
+      clearBtn,
+    ]);
+    elementContainer.appendChild(row);
+  }
+
+  pickBtn.addEventListener("click", () => {
+    if (cancelPicker) {
+      cancelPicker();
+      cancelPicker = null;
+    }
+    cancelPicker = startPicker((info) => {
+      cancelPicker = null;
+      if (info) {
+        selectedElement = info;
+        showSelectedElement(info);
+      }
+    });
+  });
+
+  // ── Submit annotation ──
+  submitBtn.addEventListener("click", async () => {
+    const text = textarea.value.trim();
+    if (!text) return;
+
+    (submitBtn as HTMLButtonElement).disabled = true;
+    submitBtn.textContent = "Saving...";
+
+    // If element selected with bounding box, crop a screenshot of just that element
+    let elementScreenshotData: string | undefined;
+    if (selectedElement?.bounding_box) {
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: "TAKE_SCREENSHOT",
+          trigger: "annotation",
+        } as Message);
+        if (response?.dataUrl) {
+          elementScreenshotData = await cropScreenshot(
+            response.dataUrl,
+            selectedElement.bounding_box,
+            window.devicePixelRatio,
+          );
+        }
+      } catch {
+        // Fall back to annotation without element screenshot
+      }
+    }
+
+    await chrome.runtime.sendMessage({
+      type: "ADD_ANNOTATION",
+      text,
+      element: selectedElement ?? undefined,
+      elementScreenshotData,
+    } as Message);
+
+    // Reset form
+    textarea.value = "";
+    selectedElement = null;
+    elementContainer.replaceChildren();
+    submitBtn.textContent = "Add Annotation";
+    updateSubmitState();
+  });
+}
+
+export function hideWidget() {
+  cancelPicker?.();
+  cancelPicker = null;
+  widgetHost?.remove();
+  widgetHost = null;
+  widgetShadow = null;
+}
+
+// Crop a viewport screenshot to just the element's bounding box.
+// devicePixelRatio accounts for retina displays where the screenshot
+// is larger than CSS pixels.
+function cropScreenshot(
+  dataUrl: string,
+  box: { x: number; y: number; width: number; height: number },
+  dpr: number,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const sx = Math.round(box.x * dpr);
+      const sy = Math.round(box.y * dpr);
+      const sw = Math.round(box.width * dpr);
+      const sh = Math.round(box.height * dpr);
+      canvas.width = sw;
+      canvas.height = sh;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("No canvas context"));
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+export function focusWidget() {
+  if (!widgetShadow) return;
+  const widget = widgetShadow.querySelector(".examiner-widget");
+  if (widget?.classList.contains("minimized")) {
+    widget.classList.remove("minimized");
+    const btn = widgetShadow.querySelector(".examiner-minimize");
+    if (btn) btn.textContent = "—";
+  }
+  const textarea = widgetShadow.querySelector(
+    ".examiner-textarea",
+  ) as HTMLTextAreaElement | null;
+  textarea?.focus();
+}
