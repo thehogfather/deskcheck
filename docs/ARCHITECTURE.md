@@ -42,6 +42,7 @@ Minimal session-start trigger. Shows "Start Session" when idle, "Download Report
 - **session-store.ts** — chrome.storage.local CRUD for sessions, events, screenshots.
 - **exporter.ts** — Builds zip (fflate) from session data. Strips internal fields (tab_id). Skips corrupted screenshots gracefully.
 - **debugger-client.ts** — CDP v1.3 client. Subscribes to Network, Log, Runtime domains. Filters extension URLs. Sanitizes sensitive headers (Authorization, Cookie, etc.) before storing.
+- **session-metrics.ts** — Pure functions for session metrics: size estimation, duration/bytes formatting, threshold checking. Polled by widget every 2s via `GET_SESSION_METRICS`.
 - **dom-utils.ts** — CSS selector generation, element info extraction, throttle utility.
 - **image-utils.ts** — Screenshot cropping for element annotations.
 
