@@ -1,4 +1,4 @@
-.PHONY: dev build test typecheck clean bump-patch bump-minor
+.PHONY: dev build test test-e2e typecheck clean bump-patch bump-minor
 
 dev:
 	npx vite build --watch --mode development
@@ -8,6 +8,9 @@ build:
 
 test:
 	npx vitest run
+
+test-e2e: build
+	npx playwright test
 
 typecheck:
 	npx tsc --noEmit
