@@ -1,4 +1,4 @@
-import { Message, ScreenshotEvent } from "../types";
+import { Message } from "../types";
 import {
   createSession,
   endSession,
@@ -10,6 +10,8 @@ import {
 } from "../lib/session-store";
 import * as debuggerClient from "../lib/debugger-client";
 import { exportSession, getExportFilename } from "../lib/exporter";
+import { bytesToBase64 } from "../lib/encoding";
+import { takeScreenshot } from "./screenshot";
 
 let recording = false;
 let activeTabId: number | null = null;
@@ -53,34 +55,6 @@ function setBadge(active: boolean) {
   chrome.action.setBadgeBackgroundColor({ color: active ? "#dc2626" : "#000" });
 }
 
-// ── Screenshot ──
-
-async function takeScreenshot(
-  trigger: ScreenshotEvent["trigger"],
-): Promise<{ id: string; dataUrl: string } | null> {
-  if (!activeTabId) return null;
-  try {
-    const dataUrl = (await chrome.tabs.captureVisibleTab({ format: "png" })) as string;
-    const id = `ss_${Date.now()}`;
-    await storeScreenshot(id, dataUrl);
-
-    const tab = await chrome.tabs.get(activeTabId);
-    await appendEvent({
-      timestamp: new Date().toISOString(),
-      type: "screenshot",
-      id,
-      file: `screenshots/${id}.png`,
-      viewport: { width: tab.width ?? 0, height: tab.height ?? 0 },
-      trigger,
-      page_url: tab.url ?? "",
-    });
-    return { id, dataUrl };
-  } catch (e) {
-    console.error("[Examiner] Screenshot failed:", e);
-    return null;
-  }
-}
-
 // ── Message handler ──
 
 chrome.runtime.onMessage.addListener(
@@ -91,7 +65,7 @@ chrome.runtime.onMessage.addListener(
         console.error("[Examiner] Message handler error:", err);
         sendResponse({ error: String(err) });
       });
-    return true; // keep channel open for async response
+    return true;
   },
 );
 
@@ -110,7 +84,6 @@ async function handleMessage(
       activeSessionId = session.id;
       setBadge(true);
 
-      // Attach debugger for console/network capture
       if (activeTabId) {
         try {
           await debuggerClient.attach(activeTabId, msg.url, (event) => {
@@ -120,7 +93,6 @@ async function handleMessage(
           console.warn("[Examiner] Failed to attach debugger:", e);
         }
 
-        // Ensure content script is injected (handles pages open before extension load)
         try {
           await chrome.scripting.executeScript({
             target: { tabId: activeTabId },
@@ -130,7 +102,6 @@ async function handleMessage(
           console.warn("[Examiner] Failed to inject content script:", e);
         }
 
-        // Give content script a moment to register its listeners, then notify
         await new Promise((r) => setTimeout(r, 100));
         try {
           await chrome.tabs.sendMessage(activeTabId, {
@@ -154,7 +125,6 @@ async function handleMessage(
       activeTabId = null;
       setBadge(false);
 
-      // Notify content script (sender may be popup, so use activeTabId as fallback)
       if (tabToNotify) {
         try {
           chrome.tabs.sendMessage(tabToNotify, { type: "SESSION_STOPPED" });
@@ -167,9 +137,7 @@ async function handleMessage(
 
     case "RECORD_EVENT": {
       if (!recording) return;
-      // Only record events from the session tab
       if (sender.tab?.id && sender.tab.id !== activeTabId) return;
-      // Keep debugger client aware of current page URL
       if (
         msg.event.type === "interaction" &&
         msg.event.subtype === "navigation" &&
@@ -182,16 +150,16 @@ async function handleMessage(
     }
 
     case "TAKE_SCREENSHOT": {
-      const ss = await takeScreenshot(msg.trigger);
+      if (!activeTabId) return { screenshotId: null, dataUrl: null };
+      const ss = await takeScreenshot(activeTabId, msg.trigger);
       return { screenshotId: ss?.id ?? null, dataUrl: ss?.dataUrl ?? null };
     }
 
     case "ADD_ANNOTATION": {
-      if (!recording) return;
-      const ss = await takeScreenshot("annotation");
-      const tab = activeTabId ? await chrome.tabs.get(activeTabId) : null;
+      if (!recording || !activeTabId) return;
+      const ss = await takeScreenshot(activeTabId, "annotation");
+      const tab = await chrome.tabs.get(activeTabId);
 
-      // Store element screenshot if provided
       let elementScreenshotId: string | undefined;
       if (msg.elementScreenshotData) {
         elementScreenshotId = `el_${Date.now()}`;
@@ -205,7 +173,7 @@ async function handleMessage(
             ? { width: msg.element.bounding_box.width, height: msg.element.bounding_box.height }
             : { width: 0, height: 0 },
           trigger: "annotation",
-          page_url: tab?.url ?? "",
+          page_url: tab.url ?? "",
         });
       }
 
@@ -216,7 +184,7 @@ async function handleMessage(
         element: msg.element,
         screenshot_id: ss?.id ?? "",
         element_screenshot_id: elementScreenshotId,
-        page_url: tab?.url ?? "",
+        page_url: tab.url ?? "",
       });
       return { screenshotId: ss?.id };
     }
@@ -228,7 +196,6 @@ async function handleMessage(
       const screenshots = await getScreenshots();
       const zipBytes = exportSession(session, events, screenshots);
       const filename = getExportFilename(session);
-      // Service workers can't use URL.createObjectURL — use base64 data URL
       const base64 = bytesToBase64(zipBytes);
       const dataUrl = `data:application/zip;base64,${base64}`;
       await chrome.downloads.download({ url: dataUrl, filename, saveAs: true });
@@ -240,8 +207,8 @@ async function handleMessage(
 // ── Keyboard shortcuts ──
 
 chrome.commands.onCommand.addListener(async (command) => {
-  if (command === "take-screenshot" && recording) {
-    await takeScreenshot("manual");
+  if (command === "take-screenshot" && recording && activeTabId) {
+    await takeScreenshot(activeTabId, "manual");
   }
   if (command === "toggle-annotation" && recording && activeTabId) {
     chrome.tabs.sendMessage(activeTabId, { type: "FOCUS_ANNOTATION" });
@@ -283,12 +250,4 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
 }
