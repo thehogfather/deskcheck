@@ -3,6 +3,8 @@ import {
   createSession,
   endSession,
   getSession,
+  getEvents,
+  getScreenshots,
   appendEvent,
   storeScreenshot,
 } from "../lib/session-store";
@@ -222,7 +224,9 @@ async function handleMessage(
     case "EXPORT_SESSION": {
       const session = await getSession();
       if (!session) return { error: "No session" };
-      const zipBytes = await exportSession();
+      const events = await getEvents();
+      const screenshots = await getScreenshots();
+      const zipBytes = exportSession(session, events, screenshots);
       const filename = getExportFilename(session);
       // Service workers can't use URL.createObjectURL — use base64 data URL
       const base64 = bytesToBase64(zipBytes);

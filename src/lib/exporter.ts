@@ -5,15 +5,12 @@ import {
   SessionMetadata,
   TimelineEvent,
 } from "../types";
-import { getSession, getEvents, getScreenshots } from "./session-store";
 
-export async function exportSession(): Promise<Uint8Array> {
-  const session = await getSession();
-  if (!session) throw new Error("No session to export");
-
-  const events = await getEvents();
-  const screenshots = await getScreenshots();
-
+export function exportSession(
+  session: SessionMetadata,
+  events: TimelineEvent[],
+  screenshots: Record<string, string>,
+): Uint8Array {
   const summary = buildSummary(events);
 
   // Strip internal fields (tab_id) from export
@@ -28,12 +25,10 @@ export async function exportSession(): Promise<Uint8Array> {
 
   const jsonStr = JSON.stringify(exportData, null, 2);
 
-  // Build zip contents
   const zipData: Record<string, Uint8Array> = {
     "session.json": strToU8(jsonStr),
   };
 
-  // Add screenshots
   for (const [id, dataUrl] of Object.entries(screenshots)) {
     const base64 = dataUrl.split(",")[1];
     if (base64) {
@@ -49,7 +44,7 @@ export async function exportSession(): Promise<Uint8Array> {
   return zipSync(zipData);
 }
 
-function buildSummary(events: TimelineEvent[]): SessionSummary {
+export function buildSummary(events: TimelineEvent[]): SessionSummary {
   const pages = new Set<string>();
   let annotations = 0;
   let consoleErrors = 0;
