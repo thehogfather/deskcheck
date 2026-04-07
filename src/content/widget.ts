@@ -1,11 +1,16 @@
-import { ElementInfo, Message } from "../types";
+import { ElementInfo, Message, SessionMetrics } from "../types";
 import { startPicker } from "./element-picker";
 import { cropScreenshot } from "../lib/image-utils";
+import { formatDuration, formatBytes, isOverSizeThreshold } from "../lib/session-metrics";
+import { SIZE_WARNING_BYTES, METRICS_POLL_INTERVAL_MS } from "../constants";
 import widgetCss from "./widget.css?raw";
 
 let widgetHost: HTMLElement | null = null;
 let widgetShadow: ShadowRoot | null = null;
 let cancelPicker: (() => void) | null = null;
+let durationInterval: ReturnType<typeof setInterval> | null = null;
+let metricsInterval: ReturnType<typeof setInterval> | null = null;
+let sessionStartTime: string | null = null;
 
 function el(
   tag: string,
@@ -48,6 +53,18 @@ export function showWidget() {
   const minimizeBtn = el("button", { class: "dc-minimize", title: "Minimize" }, ["\u2014"]);
   const header = el("div", { class: "dc-header" }, [titleSpan, minimizeBtn]);
 
+  // ── Metrics bar ──
+  const durationSpan = el("span", { class: "dc-duration" }, ["< 1s"]);
+  const sep1 = el("span", { class: "dc-metrics-sep" }, ["\u00b7"]);
+  const countSpan = el("span", { class: "dc-counts" }, ["0 events, 0 screenshots"]);
+  const sep2 = el("span", { class: "dc-metrics-sep" }, ["\u00b7"]);
+  const eventsSizeSpan = el("span", {}, ["0 KB"]);
+  const imgSizeSpan = el("span", {}, ["0 KB"]);
+  const sizeSpan = el("span", { class: "dc-size" }, [eventsSizeSpan, " + ", imgSizeSpan, " img"]);
+  const metricsBar = el("div", { class: "dc-metrics-bar" }, [
+    durationSpan, sep1, countSpan, sep2, sizeSpan,
+  ]);
+
   // ── Annotation ──
   const textarea = document.createElement("textarea");
   textarea.className = "dc-textarea";
@@ -73,7 +90,8 @@ export function showWidget() {
     sessionActions,
   ]);
 
-  const widget = el("div", { class: "dc-widget" }, [header, body]);
+  // Metrics bar sits between header and body — visible when minimized
+  const widget = el("div", { class: "dc-widget" }, [header, metricsBar, body]);
   shadow.appendChild(widget);
   document.body.appendChild(widgetHost);
 
@@ -91,6 +109,45 @@ export function showWidget() {
     widget.classList.toggle("minimized");
     minimizeBtn.textContent = widget.classList.contains("minimized") ? "+" : "\u2014";
   });
+
+  // ── Metrics polling ──
+  function updateMetrics(metrics: SessionMetrics) {
+    if (metrics.startTime) {
+      sessionStartTime = metrics.startTime;
+    }
+    countSpan.textContent = `${metrics.eventCount} events, ${metrics.screenshotCount} screenshots`;
+    eventsSizeSpan.textContent = formatBytes(metrics.eventsSizeBytes);
+    imgSizeSpan.textContent = formatBytes(metrics.screenshotsSizeBytes);
+    const totalBytes = metrics.eventsSizeBytes + metrics.screenshotsSizeBytes;
+    if (isOverSizeThreshold(totalBytes, SIZE_WARNING_BYTES)) {
+      sizeSpan.classList.add("dc-metrics-warning");
+    } else {
+      sizeSpan.classList.remove("dc-metrics-warning");
+    }
+  }
+
+  async function pollMetrics() {
+    try {
+      const metrics = await chrome.runtime.sendMessage({
+        type: "GET_SESSION_METRICS",
+      } as Message);
+      if (metrics) updateMetrics(metrics);
+    } catch {
+      // Service worker may be momentarily unavailable
+    }
+  }
+
+  // Duration timer — updates every second, purely client-side
+  durationInterval = setInterval(() => {
+    if (sessionStartTime) {
+      const elapsed = Date.now() - Date.parse(sessionStartTime);
+      durationSpan.textContent = formatDuration(elapsed);
+    }
+  }, 1000);
+
+  // Metrics poll — every 2 seconds
+  pollMetrics(); // immediate first poll
+  metricsInterval = setInterval(pollMetrics, METRICS_POLL_INTERVAL_MS);
 
   // ── Element picker ──
   function showSelectedElement(info: ElementInfo) {
@@ -198,6 +255,9 @@ export function showWidget() {
 }
 
 export function hideWidget() {
+  if (durationInterval) { clearInterval(durationInterval); durationInterval = null; }
+  if (metricsInterval) { clearInterval(metricsInterval); metricsInterval = null; }
+  sessionStartTime = null;
   cancelPicker?.();
   cancelPicker = null;
   widgetHost?.remove();

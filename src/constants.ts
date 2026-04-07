@@ -9,3 +9,7 @@ export const CDP_DOMAINS = ["Network", "Log", "Runtime"] as const;
 // Throttle intervals (ms)
 export const SCROLL_THROTTLE = 1000;
 export const RESIZE_THROTTLE = 500;
+
+// Session metrics
+export const SIZE_WARNING_BYTES = 50 * 1024 * 1024; // 50 MB
+export const METRICS_POLL_INTERVAL_MS = 2000;

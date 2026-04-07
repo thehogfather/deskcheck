@@ -137,8 +137,17 @@ type DistributiveOmit<T, K extends keyof any> = T extends any
 
 export type TimelineEventInput = DistributiveOmit<TimelineEvent, "seq">;
 
+export interface SessionMetrics {
+  startTime: string;
+  eventCount: number;
+  screenshotCount: number;
+  eventsSizeBytes: number;
+  screenshotsSizeBytes: number;
+}
+
 export type Message =
   | { type: "GET_SESSION_STATE" }
+  | { type: "GET_SESSION_METRICS" }
   | { type: "SESSION_STATE"; recording: boolean; sessionId: string | null; activeTabId: number | null }
   | { type: "START_SESSION"; tabId: number; url: string; viewport: Viewport }
   | { type: "STOP_SESSION" }

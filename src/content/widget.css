@@ -68,6 +68,32 @@
   color: #6b7280;
 }
 
+/* ── Metrics bar ── */
+
+.dc-metrics-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: #6b7280;
+  border-bottom: 1px solid #e5e7eb;
+  font-variant-numeric: tabular-nums;
+}
+
+.dc-metrics-bar span {
+  white-space: nowrap;
+}
+
+.dc-metrics-sep {
+  color: #d1d5db;
+}
+
+.dc-metrics-warning {
+  color: #d97706;
+  font-weight: 600;
+}
+
 /* ── Body ── */
 
 .dc-body {

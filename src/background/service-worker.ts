@@ -13,6 +13,7 @@ import { DebuggerClient } from "../lib/debugger-client";
 
 const debuggerClient = new DebuggerClient();
 import { exportSession, getExportFilename } from "../lib/exporter";
+import { computeSessionMetrics } from "../lib/session-metrics";
 import { takeScreenshot } from "./screenshot";
 
 let recording = false;
@@ -86,6 +87,16 @@ async function handleMessage(
         activeTabId,
         hasExportableSession: storedSession != null,
       };
+    }
+
+    case "GET_SESSION_METRICS": {
+      const session = await getSession();
+      if (!session || !recording) {
+        return { startTime: "", eventCount: 0, screenshotCount: 0, eventsSizeBytes: 0, screenshotsSizeBytes: 0 };
+      }
+      const events = await getEvents();
+      const screenshots = await getScreenshots();
+      return computeSessionMetrics(events, screenshots, session.start_time);
     }
 
     case "START_SESSION": {

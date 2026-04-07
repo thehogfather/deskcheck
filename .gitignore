@@ -4,3 +4,5 @@ dist/
 .orchestrator/evidence/screenshots/*
 .orchestrator/orchestration.log
 .orchestrator/session-summary.md
+test-results/
+playwright-report/
