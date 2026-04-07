@@ -1,5 +1,5 @@
 import { ScreenshotEvent } from "../types";
-import { storeScreenshot, appendEvent } from "../lib/session-store";
+import type { SessionStore } from "../lib/session-store-types";
 
 /**
  * Pure decision: can DeskCheck screenshot the recorded tab right now?
@@ -20,6 +20,26 @@ export function canCaptureRecordedTab(
   return true;
 }
 
+/**
+ * Decode a `data:image/png;base64,...` URL into raw PNG bytes.
+ *
+ * Exported as a pure helper so the decoding is done exactly once per
+ * capture — the service worker persists the bytes to OPFS and the
+ * original data URL is dropped immediately, removing the biggest
+ * in-memory retention point for long sessions (feature-5).
+ */
+export function dataUrlToPngBytes(dataUrl: string): Uint8Array {
+  const comma = dataUrl.indexOf(",");
+  if (comma === -1) {
+    throw new Error("dataUrlToPngBytes: not a data URL");
+  }
+  const base64 = dataUrl.slice(comma + 1);
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 export interface TakeScreenshotOptions {
   /**
    * When false, the screenshot is captured and stored in the
@@ -33,6 +53,7 @@ export interface TakeScreenshotOptions {
 }
 
 export async function takeScreenshot(
+  store: SessionStore,
   activeTabId: number,
   trigger: ScreenshotEvent["trigger"],
   options: TakeScreenshotOptions = {},
@@ -52,10 +73,12 @@ export async function takeScreenshot(
       format: "png",
     })) as string;
     const id = `ss_${Date.now()}`;
-    await storeScreenshot(id, dataUrl);
+
+    const bytes = dataUrlToPngBytes(dataUrl);
+    await store.appendScreenshot(id, bytes);
 
     if (emitTimelineEvent) {
-      await appendEvent({
+      await store.appendEvent({
         timestamp: new Date().toISOString(),
         type: "screenshot",
         id,

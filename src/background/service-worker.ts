@@ -1,22 +1,18 @@
-import { Message } from "../types";
-import {
-  createSession,
-  endSession,
-  clearSession,
-  getSession,
-  getEvents,
-  getScreenshots,
-  appendEvent,
-  storeScreenshot,
-} from "../lib/session-store";
+import { Message, SessionMetadata } from "../types";
+import { OpfsSessionStore } from "../lib/opfs-session-store";
+import type { SessionStore } from "../lib/session-store-types";
 import { DebuggerClient } from "../lib/debugger-client";
 import { DEFAULT_PII_MODE, parsePiiMode } from "../lib/pii-modes";
 import { SIDEPANEL_PATH } from "../constants";
+import { exportSessionStreaming, getExportFilename } from "../lib/exporter";
+import { computeSessionMetrics } from "../lib/session-metrics";
+import { takeScreenshot, dataUrlToPngBytes } from "./screenshot";
 
 const debuggerClient = new DebuggerClient();
-import { exportSession, getExportFilename } from "../lib/exporter";
-import { computeSessionMetrics } from "../lib/session-metrics";
-import { takeScreenshot } from "./screenshot";
+// One SessionStore instance owns all persistence for the worker. Its
+// internal ensureReady() caches the OPFS handles after the first call,
+// so subsequent message handlers do not pay the setup cost.
+const store: SessionStore = new OpfsSessionStore();
 
 let recording = false;
 let paused = false;
@@ -211,10 +207,33 @@ chrome.action.onClicked.addListener((tab) => {
   })();
 });
 
+function generateSessionId(): string {
+  return crypto.randomUUID();
+}
+
+function buildSessionMetadata(
+  tabId: number,
+  url: string,
+  viewport: { width: number; height: number },
+  piiMode: SessionMetadata["pii_mode"],
+): SessionMetadata {
+  return {
+    id: generateSessionId(),
+    tab_id: tabId,
+    start_time: new Date().toISOString(),
+    end_time: null,
+    duration_ms: null,
+    initial_url: url,
+    user_agent: navigator.userAgent,
+    viewport,
+    pii_mode: piiMode,
+  };
+}
+
 // ── Restore state on service worker wake ──
 
 async function restoreState() {
-  const session = await getSession();
+  const session = await store.ensureReady();
   if (session && !session.end_time) {
     recording = true;
     activeSessionId = session.id;
@@ -271,7 +290,7 @@ async function handleMessage(
 ) {
   switch (msg.type) {
     case "GET_SESSION_STATE": {
-      const storedSession = await getSession();
+      const storedSession = await store.getSession();
       return {
         recording,
         paused,
@@ -293,19 +312,36 @@ async function handleMessage(
     }
 
     case "GET_SESSION_METRICS": {
-      const session = await getSession();
+      const session = await store.getSession();
       if (!session || !recording) {
-        return { startTime: "", eventCount: 0, screenshotCount: 0, eventsSizeBytes: 0, screenshotsSizeBytes: 0 };
+        return {
+          startTime: "",
+          eventCount: 0,
+          screenshotCount: 0,
+          eventsSizeBytes: 0,
+          screenshotsSizeBytes: 0,
+        };
       }
-      const events = await getEvents();
-      const screenshots = await getScreenshots();
-      return computeSessionMetrics(events, screenshots, session.start_time);
+      const [eventCount, screenshotCount, sizes] = await Promise.all([
+        store.countEvents(),
+        store.countScreenshots(),
+        store.computeByteSizes(),
+      ]);
+      return computeSessionMetrics(
+        eventCount,
+        screenshotCount,
+        sizes.events,
+        sizes.screenshots,
+        session.start_time,
+      );
     }
 
     case "START_SESSION": {
       activeTabId = msg.tabId;
       const piiMode = parsePiiMode(msg.piiMode);
-      const session = await createSession(msg.tabId, msg.url, msg.viewport, piiMode);
+      const session = await store.createSession(
+        buildSessionMetadata(msg.tabId, msg.url, msg.viewport, piiMode),
+      );
       recording = true;
       activeSessionId = session.id;
       setBadge(true);
@@ -325,11 +361,13 @@ async function handleMessage(
             // (TAKE_SCREENSHOT, ADD_ANNOTATION) bypass this gate
             // because they are explicit user intent.
             if (paused) return;
-            appendEvent(event);
+            void store.appendEvent(event);
           });
         } catch (e) {
           console.warn("[DeskCheck] Failed to attach debugger:", e);
-          warnings.push("Could not attach debugger — console and network errors will not be captured. Close DevTools and restart the session.");
+          warnings.push(
+            "Could not attach debugger — console and network errors will not be captured. Close DevTools and restart the session.",
+          );
         }
 
         try {
@@ -339,7 +377,9 @@ async function handleMessage(
           });
         } catch (e) {
           console.warn("[DeskCheck] Failed to inject content script:", e);
-          warnings.push("Could not inject content script — DOM interactions will not be recorded.");
+          warnings.push(
+            "Could not inject content script — DOM interactions will not be recorded.",
+          );
         }
 
         await new Promise((r) => setTimeout(r, 100));
@@ -359,7 +399,15 @@ async function handleMessage(
     case "STOP_SESSION": {
       const tabToNotify = sender.tab?.id ?? activeTabId;
       await debuggerClient.detach();
-      await endSession();
+      const now = new Date();
+      const existing = await store.getSession();
+      if (existing) {
+        await store.updateSession({
+          end_time: now.toISOString(),
+          duration_ms:
+            now.getTime() - new Date(existing.start_time).getTime(),
+        });
+      }
       recording = false;
       paused = false;
       const stoppedSessionId = activeSessionId;
@@ -371,9 +419,11 @@ async function handleMessage(
       // only released when the bound tab is closed.
 
       if (tabToNotify) {
-        await chrome.tabs.sendMessage(tabToNotify, { type: "SESSION_STOPPED" }).catch(() => {
-          // Tab may already be closed
-        });
+        await chrome.tabs
+          .sendMessage(tabToNotify, { type: "SESSION_STOPPED" })
+          .catch(() => {
+            // Tab may already be closed
+          });
       }
       return { recording: false, sessionId: stoppedSessionId };
     }
@@ -389,13 +439,13 @@ async function handleMessage(
       ) {
         debuggerClient.updatePageUrl(msg.event.to_url);
       }
-      await appendEvent(msg.event);
+      await store.appendEvent(msg.event);
       return;
     }
 
     case "TAKE_SCREENSHOT": {
       if (!activeTabId) return { screenshotId: null, dataUrl: null };
-      const ss = await takeScreenshot(activeTabId, msg.trigger);
+      const ss = await takeScreenshot(store, activeTabId, msg.trigger);
       return { screenshotId: ss?.id ?? null, dataUrl: ss?.dataUrl ?? null };
     }
 
@@ -405,7 +455,7 @@ async function handleMessage(
       // standalone timeline events — they live inline on the annotation
       // row in the side panel. Avoids the duplicate-row noise the
       // user reported on the first feature-8 prototype.
-      const ss = await takeScreenshot(activeTabId, "annotation", {
+      const ss = await takeScreenshot(store, activeTabId, "annotation", {
         emitTimelineEvent: false,
       });
       const tab = await chrome.tabs.get(activeTabId);
@@ -413,10 +463,14 @@ async function handleMessage(
       let elementScreenshotId: string | undefined;
       if (msg.elementScreenshotData) {
         elementScreenshotId = `el_${Date.now()}`;
-        await storeScreenshot(elementScreenshotId, msg.elementScreenshotData);
+        // Element screenshots are also stored without a standalone
+        // timeline event. The annotation event references them via
+        // `element_screenshot_id`.
+        const bytes = dataUrlToPngBytes(msg.elementScreenshotData);
+        await store.appendScreenshot(elementScreenshotId, bytes);
       }
 
-      await appendEvent({
+      await store.appendEvent({
         timestamp: new Date().toISOString(),
         type: "annotation",
         text: msg.text,
@@ -429,15 +483,27 @@ async function handleMessage(
     }
 
     case "EXPORT_SESSION": {
-      const session = await getSession();
+      const session = await store.getSession();
       if (!session) return { error: "No session" };
-      const events = await getEvents();
-      const screenshots = await getScreenshots();
-      const zipBytes = exportSession(session, events, screenshots);
+      const zipBytes = await exportSessionStreaming(store, session);
       const filename = getExportFilename(session);
-      const dataUrl = `data:application/zip;base64,${zipToBase64(zipBytes)}`;
-      await chrome.downloads.download({ url: dataUrl, filename, saveAs: true });
-      await clearSession();
+      // Blob URL rather than data: base64 — removes the O(n) base64
+      // encode that used to double peak memory right before download.
+      const blob = new Blob([new Uint8Array(zipBytes)], {
+        type: "application/zip",
+      });
+      const url = URL.createObjectURL(blob);
+      try {
+        await chrome.downloads.download({ url, filename, saveAs: true });
+      } finally {
+        // Release the Blob URL as soon as the download call returns.
+        // Chrome keeps the data alive until the download completes.
+        URL.revokeObjectURL(url);
+      }
+      // Clear session AFTER the download is dispatched so any
+      // streaming error above surfaces to the caller before we wipe
+      // the data.
+      await store.deleteSession();
       return { filename };
     }
   }
@@ -447,7 +513,7 @@ async function handleMessage(
 
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === "take-screenshot" && recording && activeTabId) {
-    await takeScreenshot(activeTabId, "manual");
+    await takeScreenshot(store, activeTabId, "manual");
     return;
   }
   if (command === "open-panel") {
@@ -500,7 +566,15 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (tabId === activeTabId && recording) {
     try {
       await debuggerClient.detach();
-      await endSession();
+      const session = await store.getSession();
+      if (session) {
+        const now = new Date();
+        await store.updateSession({
+          end_time: now.toISOString(),
+          duration_ms:
+            now.getTime() - new Date(session.start_time).getTime(),
+        });
+      }
     } catch (e) {
       console.error("[DeskCheck] Error during tab close cleanup:", e);
     } finally {
@@ -521,21 +595,6 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 // ── Helpers ──
-
-function zipToBase64(bytes: Uint8Array): string {
-  // Encode in 8190-byte chunks (multiple of 3) to avoid OOM on large sessions
-  const CHUNK = 8190;
-  const parts: string[] = [];
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
-    let bin = "";
-    for (let j = 0; j < slice.length; j++) {
-      bin += String.fromCharCode(slice[j]);
-    }
-    parts.push(btoa(bin));
-  }
-  return parts.join("");
-}
 
 async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

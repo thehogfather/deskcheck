@@ -155,9 +155,10 @@ describe("OpfsSessionStore — partial trailing line tolerance", () => {
     // here we walk the tree to find `events.jsonl`.
     const file = await findEventsFile(opfs.root);
     expect(file).not.toBeNull();
-    const corrupted = new Uint8Array(file!.bytes.length + 10);
+    const partial = new TextEncoder().encode('{"partial":');
+    const corrupted = new Uint8Array(file!.bytes.length + partial.length);
     corrupted.set(file!.bytes);
-    corrupted.set(new TextEncoder().encode('{"partial":'), file!.bytes.length);
+    corrupted.set(partial, file!.bytes.length);
     file!.bytes = corrupted;
 
     // Read must not throw and must return the two well-formed events.

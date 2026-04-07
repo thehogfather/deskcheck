@@ -1,7 +1,8 @@
-// Storage keys
+// chrome.storage.local keys. As of feature-5 (OPFS persistence), events
+// and screenshots are no longer kept in chrome.storage.local — they live
+// in OPFS under `/sessions/<id>/`. Only session metadata and the
+// first-run flag remain here.
 export const STORAGE_SESSION = "deskcheck_session";
-export const STORAGE_EVENTS = "deskcheck_events";
-export const STORAGE_SCREENSHOTS = "deskcheck_screenshots";
 export const STORAGE_PRIVACY_FIRST_RUN_SEEN = "deskcheck_privacy_first_run_seen";
 
 // Side panel entry point. The manifest intentionally has NO

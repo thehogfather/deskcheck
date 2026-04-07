@@ -6,10 +6,6 @@
 // file body via `decodeAll`, tolerating a trailing partial line (which
 // can happen if the service worker died mid-write).
 
-const NYI = () => {
-  throw new Error("jsonl: not yet implemented (Phase 4)");
-};
-
 /**
  * Encode a single record as one JSONL line.
  *
@@ -17,9 +13,8 @@ const NYI = () => {
  * literal newline inside a string field may split across lines — that
  * is guaranteed by `JSON.stringify` always escaping newlines as `\\n`.
  */
-export function encodeRecord<T>(_record: T): string {
-  NYI();
-  return "";
+export function encodeRecord<T>(record: T): string {
+  return JSON.stringify(record) + "\n";
 }
 
 /**
@@ -45,7 +40,43 @@ export interface DecodeResult<T> {
  * newlines inside JSON string fields (must not split), and malformed
  * intermediate lines (skipped with a count). Never throws.
  */
-export function decodeAll<T>(_body: string): DecodeResult<T> {
-  NYI();
-  return { records: [], partialTrailingLine: false, malformedLines: 0 };
+export function decodeAll<T>(body: string): DecodeResult<T> {
+  const records: T[] = [];
+  let malformedLines = 0;
+  let partialTrailingLine = false;
+
+  if (body.length === 0) {
+    return { records, partialTrailingLine: false, malformedLines: 0 };
+  }
+
+  // Split on raw '\n'. Because JSON.stringify always escapes newlines
+  // inside string fields as '\\n', a raw '\n' always terminates a
+  // record — there is no need for a character-by-character parser.
+  const lines = body.split("\n");
+
+  // If the body ends with '\n', the final element of `lines` is an
+  // empty string and there is no partial. Otherwise the final element
+  // is the partial fragment, which we drop.
+  const lastIsPartial = !body.endsWith("\n");
+  const iterEnd = lastIsPartial ? lines.length - 1 : lines.length - 1;
+
+  for (let i = 0; i < iterEnd; i++) {
+    const line = lines[i];
+    if (line.length === 0) continue;
+    try {
+      records.push(JSON.parse(line) as T);
+    } catch {
+      malformedLines += 1;
+    }
+  }
+
+  if (lastIsPartial) {
+    // There is a trailing fragment. If it is empty, it is not really
+    // partial (just a stray terminator); otherwise count it.
+    if (lines[lines.length - 1].length > 0) {
+      partialTrailingLine = true;
+    }
+  }
+
+  return { records, partialTrailingLine, malformedLines };
 }

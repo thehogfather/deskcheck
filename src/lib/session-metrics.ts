@@ -1,21 +1,24 @@
-import { SessionMetrics, TimelineEvent } from "../types";
+import { SessionMetrics } from "../types";
 
+/**
+ * Build the live session-metrics snapshot for the widget overlay.
+ *
+ * Signature is numeric-only (feature-5). The caller is responsible for
+ * fetching the counts and sizes from the SessionStore — this function
+ * just formats the resulting shape. Byte totals should come from the
+ * store's `computeByteSizes()`, which reads file sizes from OPFS rather
+ * than measuring in-memory strings.
+ */
 export function computeSessionMetrics(
-  events: TimelineEvent[],
-  screenshots: Record<string, string>,
+  eventCount: number,
+  screenshotCount: number,
+  eventsSizeBytes: number,
+  screenshotsSizeBytes: number,
   startTime: string,
 ): SessionMetrics {
-  const screenshotCount = Object.keys(screenshots).length;
-
-  const eventsSizeBytes = JSON.stringify(events).length;
-  const screenshotsSizeBytes = Object.values(screenshots).reduce(
-    (sum, dataUrl) => sum + dataUrl.length,
-    0,
-  );
-
   return {
     startTime,
-    eventCount: events.length,
+    eventCount,
     screenshotCount,
     eventsSizeBytes,
     screenshotsSizeBytes,

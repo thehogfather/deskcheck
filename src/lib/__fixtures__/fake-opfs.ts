@@ -62,8 +62,12 @@ export class FakeWritableFileStream {
     private readonly handle: FakeFileHandle,
     initial: Uint8Array,
   ) {
+    // Match real FileSystemWritableFileStream semantics: the cursor
+    // starts at 0 regardless of whether `keepExistingData` was set.
+    // Callers that want to append must explicitly seek or pass a
+    // position with their `write()` call.
     this.buffer = initial;
-    this.cursor = initial.length;
+    this.cursor = 0;
   }
 
   async write(
