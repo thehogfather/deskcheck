@@ -16,6 +16,14 @@
       "claimed_at": "2026-04-07T19:39:28.217550+00:00",
       "branch": "feature/pii-capture-modes",
       "status": "active"
+    },
+    {
+      "feature_id": "feature-3",
+      "feature_title": "Schema documentation for AI consumers",
+      "claimed_by": "orch-20260407-194547-56977",
+      "claimed_at": "2026-04-07T19:45:47+00:00",
+      "branch": "feature/schema-docs-for-ai-consumers",
+      "status": "active"
     }
   ]
 }
