@@ -22,6 +22,7 @@ function makeSession(overrides?: Partial<SessionMetadata>): SessionMetadata {
     initial_url: "https://example.com",
     user_agent: "TestAgent/1.0",
     viewport: { width: 1280, height: 720 },
+    pii_mode: "full",
     ...overrides,
   };
 }
@@ -133,6 +134,22 @@ describe("exportSession", () => {
     const unzipped = unzipSync(zipBytes);
     const json = JSON.parse(strFromU8(unzipped["session.json"]));
     expect(json.session.tab_id).toBeUndefined();
+  });
+
+  it("round-trips pii_mode in exported session", () => {
+    const session = makeSession({ pii_mode: "metadata" });
+    const zipBytes = exportSession(session, [], {});
+    const unzipped = unzipSync(zipBytes);
+    const json = JSON.parse(strFromU8(unzipped["session.json"]));
+    expect(json.session.pii_mode).toBe("metadata");
+  });
+
+  it("preserves pii_mode 'none' in exported session", () => {
+    const session = makeSession({ pii_mode: "none" });
+    const zipBytes = exportSession(session, [], {});
+    const unzipped = unzipSync(zipBytes);
+    const json = JSON.parse(strFromU8(unzipped["session.json"]));
+    expect(json.session.pii_mode).toBe("none");
   });
 
   it("includes screenshots as PNG files in zip", () => {
