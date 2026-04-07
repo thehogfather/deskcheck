@@ -147,6 +147,32 @@ describe("exportSession", () => {
   });
 });
 
+describe("exportSession privacy notice", () => {
+  it("includes PRIVACY.md at the zip root in an empty session (matrix #10)", () => {
+    const zipBytes = exportSession(makeSession(), [], {});
+    const unzipped = unzipSync(zipBytes);
+    expect(unzipped["PRIVACY.md"]).toBeDefined();
+    expect(unzipped["PRIVACY.md"].length).toBeGreaterThan(0);
+  });
+
+  it("includes PRIVACY.md alongside screenshots (matrix #11)", () => {
+    const pngDataUrl =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+    const zipBytes = exportSession(makeSession(), makeEvents(), { ss_1: pngDataUrl });
+    const unzipped = unzipSync(zipBytes);
+    expect(unzipped["PRIVACY.md"]).toBeDefined();
+    expect(unzipped["screenshots/ss_1.png"]).toBeDefined();
+  });
+
+  it("PRIVACY.md content references screenshots and sensitive data (matrix #12)", () => {
+    const zipBytes = exportSession(makeSession(), [], {});
+    const unzipped = unzipSync(zipBytes);
+    const text = strFromU8(unzipped["PRIVACY.md"]);
+    expect(text).toMatch(/screenshot/i);
+    expect(text).toMatch(/sensitive/i);
+  });
+});
+
 describe("getExportFilename", () => {
   it("formats filename from session start time", () => {
     const session = makeSession({
