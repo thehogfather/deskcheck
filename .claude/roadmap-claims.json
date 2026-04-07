@@ -24,8 +24,9 @@
       "feature_title": "Schema documentation for AI consumers",
       "claimed_by": "orch-20260407-194547-56977",
       "claimed_at": "2026-04-07T19:45:47+00:00",
+      "released_at": "2026-04-07T21:15:00+00:00",
       "branch": "feature/schema-docs-for-ai-consumers",
-      "status": "active"
+      "status": "completed"
     }
   ]
 }
