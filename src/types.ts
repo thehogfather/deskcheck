@@ -111,7 +111,7 @@ export type TimelineEvent =
 // ── Export Schema ──
 
 export interface SessionExport {
-  schema_version: "1.0.0";
+  schema_version: "1.1.0";
   session: SessionMetadata;
   timeline: TimelineEvent[];
   summary: SessionSummary;
