@@ -7,6 +7,26 @@ import {
 } from "../types";
 import { PRIVACY_MD_TEMPLATE } from "./privacy";
 import { AGENTS_MD, SCHEMA_VERSION } from "./agents-doc";
+import type { SessionStore } from "./session-store-types";
+
+/**
+ * Streaming session export (feature-5).
+ *
+ * Reads events and screenshots from the given SessionStore one-at-a-time
+ * and pipes them into fflate's streaming `Zip` so the whole session is
+ * never held in memory. Returns the finished zip bytes as a Uint8Array
+ * (the caller wraps it in a Blob for download).
+ *
+ * Phase 3 stub — throws until the real implementation lands in Phase 4.
+ */
+export async function exportSessionStreaming(
+  _store: SessionStore,
+  _session: SessionMetadata,
+): Promise<Uint8Array> {
+  throw new Error(
+    "exportSessionStreaming: not yet implemented (Phase 4, feature-5)",
+  );
+}
 
 export function exportSession(
   session: SessionMetadata,
