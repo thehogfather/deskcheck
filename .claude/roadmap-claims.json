@@ -35,6 +35,14 @@
       "claimed_at": "2026-04-07T22:25:57.914196+00:00",
       "branch": "feature/incremental-persistence-opfs",
       "status": "active"
+    },
+    {
+      "feature_id": "feature-8",
+      "feature_title": "Side panel UX with live event timeline",
+      "claimed_by": "orch-20260407-222834-15236",
+      "claimed_at": "2026-04-07T22:28:47.597539+00:00",
+      "branch": "feature/feature-8",
+      "status": "active"
     }
   ]
 }
