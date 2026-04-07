@@ -41,10 +41,10 @@ status: draft
 - **Impact**: High | **Effort**: Small
 - **Description**: Show a one-time notice when recording starts explaining that screenshots capture everything visible on screen. Show a reminder before export that the zip may contain sensitive data and is intended for local use only. Include a brief privacy note in the export zip itself.
 - **Definition of done**:
-  - [ ] First-run notice appears when a session starts (dismissible, shown once per install)
-  - [ ] Pre-export reminder appears in the widget when "Stop & Download" is clicked
-  - [ ] Export zip includes a `PRIVACY.md` noting that screenshots may contain sensitive data
-  - [ ] Notice text explains that DeskCheck captures visible screen content, form inputs, and network headers
+  - [x] First-run notice appears when a session starts (dismissible, shown once per install)
+  - [x] Pre-export reminder appears in the widget when "Stop & Download" is clicked
+  - [x] Export zip includes a `PRIVACY.md` noting that screenshots may contain sensitive data
+  - [x] Notice text explains that DeskCheck captures visible screen content, form inputs, and network headers
 
 ### 3. Schema documentation for AI consumers
 - **Persona**: AI Consumer

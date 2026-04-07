@@ -43,6 +43,8 @@ Minimal session-start trigger. Shows "Start Session" when idle, "Download Report
 - **exporter.ts** — Builds zip (fflate) from session data. Strips internal fields (tab_id). Skips corrupted screenshots gracefully.
 - **debugger-client.ts** — CDP v1.3 client. Subscribes to Network, Log, Runtime domains. Filters extension URLs. Sanitizes sensitive headers (Authorization, Cookie, etc.) before storing.
 - **session-metrics.ts** — Pure functions for session metrics: size estimation, duration/bytes formatting, threshold checking. Polled by widget every 2s via `GET_SESSION_METRICS`.
+- **privacy.ts** — Pure module: single source of truth for the in-widget first-run notice bullets, the pre-export reminder line, and the `PRIVACY.md` template shipped in every export. Imported by both `widget.ts` and `exporter.ts` so the copy cannot drift.
+- **privacy-store.ts** — `chrome.storage.local` wrapper for the first-run notice flag. Read failures default to "not seen" so the notice errs on the side of being shown; write failures are logged but not thrown.
 - **dom-utils.ts** — CSS selector generation, element info extraction, throttle utility.
 - **image-utils.ts** — Screenshot cropping for element annotations.
 
@@ -63,8 +65,15 @@ Discriminated union for timeline events: interaction, viewport_resize, network_e
 ```
 deskcheck-session-{timestamp}.zip
 ├── session.json    # { schema_version, session, timeline[], summary }
+├── PRIVACY.md      # Privacy notice — sibling artifact, not part of session.json
 └── screenshots/    # PNGs referenced by timeline events
 ```
+
+`PRIVACY.md` is a sibling artifact in the zip, not a field of `session.json`,
+so the schema version is unchanged. It is added to `zipData` BEFORE the
+screenshots loop in `exportSession` and is intentionally not wrapped in
+try/catch — a missing privacy notice is a louder failure mode than a missing
+screenshot.
 
 ## Security
 
@@ -73,6 +82,9 @@ deskcheck-session-{timestamp}.zip
 - Password fields are masked as `[password]`
 - No external network requests; all data stays local
 - Session data cleared from storage after export
+- First-run privacy notice (shown once per install via `chrome.storage.local`) explains that DeskCheck captures visible screen content, form inputs, and network headers
+- Pre-export reminder panel surfaces inside the widget on every Stop & Download click; "Keep recording" cancels with no state changes, "Download" proceeds with the unchanged stop/export flow
+- Every export zip ships a `PRIVACY.md` describing what may be sensitive in the contents
 - Single production dependency (fflate)
 
 ## Conventions
@@ -86,5 +98,6 @@ deskcheck-session-{timestamp}.zip
 
 | Version | Changes |
 |---------|---------|
+| (unreleased) | Sensitive data warnings (feature #2): first-run notice in the widget, pre-export reminder panel with explicit Keep-recording cancel, and a `PRIVACY.md` shipped in every export. New `src/lib/privacy.ts` (pure copy + decision helper) and `src/lib/privacy-store.ts` (storage wrapper). Single source of truth for notice copy across the widget and the exporter. |
 | 0.3.0   | Consolidated UI into widget overlay, debounced input recording, security hardening, new icon |
 | 0.2.0   | Initial release as DeskCheck (renamed from Examiner) |
