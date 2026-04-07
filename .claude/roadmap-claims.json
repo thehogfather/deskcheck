@@ -27,6 +27,14 @@
       "released_at": "2026-04-07T21:15:00+00:00",
       "branch": "feature/schema-docs-for-ai-consumers",
       "status": "completed"
+    },
+    {
+      "feature_id": "feature-5",
+      "feature_title": "Incremental persistence (OPFS)",
+      "claimed_by": "orch-20260407-222525-6254",
+      "claimed_at": "2026-04-07T22:25:57.914196+00:00",
+      "branch": "feature/incremental-persistence-opfs",
+      "status": "active"
     }
   ]
 }
