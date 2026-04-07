@@ -6,8 +6,9 @@
       "feature_title": "Sensitive data warnings",
       "claimed_by": "orch-20260407-203409-26891",
       "claimed_at": "2026-04-07T19:34:14.514890+00:00",
+      "released_at": "2026-04-07T19:56:00+00:00",
       "branch": "feature/sensitive-data-warnings",
-      "status": "active"
+      "status": "completed"
     },
     {
       "feature_id": "feature-4",
