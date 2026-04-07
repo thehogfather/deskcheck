@@ -3,6 +3,12 @@ import { startPicker } from "./element-picker";
 import { cropScreenshot } from "../lib/image-utils";
 import { formatDuration, formatBytes, isOverSizeThreshold } from "../lib/session-metrics";
 import { SIZE_WARNING_BYTES, METRICS_POLL_INTERVAL_MS } from "../constants";
+import {
+  PRIVACY_NOTICE_BULLETS,
+  PRIVACY_REMINDER_LINE,
+  shouldShowFirstRunNotice,
+} from "../lib/privacy";
+import { getFirstRunSeen, markFirstRunSeen } from "../lib/privacy-store";
 import widgetCss from "./widget.css?raw";
 
 let widgetHost: HTMLElement | null = null;
@@ -94,6 +100,24 @@ export function showWidget() {
   const widget = el("div", { class: "dc-widget" }, [header, metricsBar, body]);
   shadow.appendChild(widget);
   document.body.appendChild(widgetHost);
+
+  // ── First-run privacy notice ──
+  // Conditional on a one-time chrome.storage.local flag. Read failures bias
+  // toward showing the notice (privacy-store.ts wraps the read in try/catch).
+  getFirstRunSeen()
+    .then((seen) => {
+      if (!shouldShowFirstRunNotice(seen)) return;
+      const notice = renderFirstRunNotice(() => {
+        notice.remove();
+        // Fire-and-forget: a write failure simply means the notice will
+        // reappear next session, which is the safer default.
+        markFirstRunSeen();
+      });
+      widget.insertBefore(notice, metricsBar);
+    })
+    .catch(() => {
+      // Already handled in the wrapper, but stay defensive at the call site.
+    });
 
   // ── State ──
   let selectedElement: ElementInfo | null = null;
@@ -237,8 +261,15 @@ export function showWidget() {
     setTimeout(() => { screenshotBtn.textContent = "Screenshot"; }, 1000);
   });
 
-  // ── Stop & Download ──
-  stopBtn.addEventListener("click", async () => {
+  // ── Stop & Download (with pre-export reminder) ──
+  // First click on Stop & Download opens an inline reminder panel inside the
+  // widget body. The panel has two explicit buttons: "Keep recording" (sends
+  // no messages, leaves the session running) and "Download" (proceeds with
+  // the unchanged STOP_SESSION + EXPORT_SESSION flow). Initial focus goes to
+  // "Keep recording" — anti-muscle-memory for a privacy control.
+  let confirmPanel: HTMLElement | null = null;
+
+  async function performExport() {
     stopBtn.textContent = "Exporting...";
     (stopBtn as HTMLButtonElement).disabled = true;
     try {
@@ -251,7 +282,65 @@ export function showWidget() {
       stopBtn.textContent = "Export failed";
     }
     // Widget will be removed by the session-stopped handler
+  }
+
+  stopBtn.addEventListener("click", () => {
+    if (confirmPanel) return; // Already open — ignore re-clicks.
+    confirmPanel = renderPreExportReminder({
+      onCancel: () => {
+        confirmPanel?.remove();
+        confirmPanel = null;
+      },
+      onConfirm: () => {
+        confirmPanel?.remove();
+        confirmPanel = null;
+        performExport();
+      },
+    });
+    body.appendChild(confirmPanel);
+    const cancelBtn = confirmPanel.querySelector(".dc-confirm-cancel") as HTMLButtonElement | null;
+    cancelBtn?.focus();
   });
+}
+
+// ── First-run notice ──
+
+function renderFirstRunNotice(onDismiss: () => void): HTMLElement {
+  const title = el("div", { class: "dc-notice-title" }, ["Heads up — DeskCheck records sensitive content"]);
+  const list = el("ul", { class: "dc-notice-list" });
+  for (const bullet of PRIVACY_NOTICE_BULLETS) {
+    list.appendChild(el("li", {}, [bullet]));
+  }
+  const dismissBtn = el("button", { class: "dc-btn dc-notice-dismiss", type: "button" }, ["Got it"]);
+  dismissBtn.addEventListener("click", onDismiss);
+
+  const notice = el("div", { class: "dc-notice", role: "alert", "aria-live": "polite" }, [
+    title,
+    list,
+    dismissBtn,
+  ]);
+  return notice;
+}
+
+// ── Pre-export reminder panel ──
+
+interface ConfirmPanelHandlers {
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function renderPreExportReminder({ onCancel, onConfirm }: ConfirmPanelHandlers): HTMLElement {
+  const text = el("div", { class: "dc-confirm-text" }, [PRIVACY_REMINDER_LINE]);
+
+  const cancelBtn = el("button", { class: "dc-btn dc-confirm-cancel", type: "button" }, ["Keep recording"]);
+  cancelBtn.addEventListener("click", onCancel);
+
+  const downloadBtn = el("button", { class: "dc-btn dc-btn-danger dc-confirm-download", type: "button" }, ["Download"]);
+  downloadBtn.addEventListener("click", onConfirm);
+
+  const actions = el("div", { class: "dc-confirm-actions" }, [cancelBtn, downloadBtn]);
+
+  return el("div", { class: "dc-confirm", role: "alertdialog", "aria-modal": "false" }, [text, actions]);
 }
 
 export function hideWidget() {
