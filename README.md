@@ -56,4 +56,4 @@ DeskCheck is designed for **local use**. All data stays on your machine — no e
 
 ## License
 
-TBD.
+[MIT](LICENSE) © Patrick Oladimeji

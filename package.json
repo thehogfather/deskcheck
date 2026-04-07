@@ -2,6 +2,7 @@
   "name": "deskcheck",
   "version": "0.3.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite build --watch --mode development",
