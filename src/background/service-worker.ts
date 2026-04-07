@@ -21,6 +21,19 @@ let recording = false;
 let activeTabId: number | null = null;
 let activeSessionId: string | null = null;
 
+// ── Side panel registration ──
+//
+// Open the side panel directly when the user clicks the toolbar action.
+// This must run on EVERY service-worker wake (not only inside
+// onInstalled), because Chrome may terminate and respawn the SW many
+// times during a browser session. Pinned by
+// tests/service-worker-setpanel.test.ts.
+chrome.sidePanel
+  ?.setPanelBehavior?.({ openPanelOnActionClick: true })
+  .catch((err) => {
+    console.warn("[DeskCheck] setPanelBehavior failed:", err);
+  });
+
 // ── Restore state on service worker wake ──
 
 async function restoreState() {

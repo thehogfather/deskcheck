@@ -1,0 +1,304 @@
+/* DeskCheck side panel — dark theme.
+ *
+ * Two-region flex layout: scrollable event list above, sticky controls
+ * pinned to the bottom. The widget overlay (src/content/widget.css)
+ * keeps its current light palette; the side panel diverges intentionally
+ * because it lives in the browser chrome rather than on the page. The
+ * divergence is documented in docs/ARCHITECTURE.md.
+ */
+
+:root {
+  --bg: #0f172a;          /* slate-900 */
+  --bg-elev: #1e293b;     /* slate-800 */
+  --bg-elev-2: #334155;   /* slate-700 */
+  --border: #334155;
+  --text: #e2e8f0;        /* slate-200 */
+  --text-dim: #94a3b8;    /* slate-400 */
+  --accent: #3b82f6;      /* blue-500 */
+  --accent-hover: #2563eb;
+  --danger: #ef4444;      /* red-500 */
+  --warning: #f59e0b;     /* amber-500 */
+  --success: #10b981;     /* emerald-500 */
+  --annotation: #a855f7;  /* purple-500 */
+  --screenshot: #06b6d4;  /* cyan-500 */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+#sidepanel-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+#first-run-notice-container {
+  flex: 0 0 auto;
+}
+
+.first-run-notice {
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 14px;
+}
+
+.first-run-notice .title {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.first-run-notice ul {
+  margin: 0 0 10px 0;
+  padding-left: 18px;
+  color: var(--text-dim);
+}
+
+.first-run-notice li {
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.first-run-notice .dismiss-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.first-run-notice .dismiss-btn:hover {
+  background: var(--accent-hover);
+}
+
+/* ── Events list ── */
+
+#events-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--bg);
+}
+
+.event-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  background: var(--bg-elev);
+  border-left: 3px solid var(--bg-elev-2);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.event-row.accent-danger {
+  border-left-color: var(--danger);
+}
+
+.event-row.accent-warning {
+  border-left-color: var(--warning);
+}
+
+.event-row.accent-info {
+  border-left-color: var(--accent);
+}
+
+.event-row.accent-success {
+  border-left-color: var(--success);
+}
+
+.event-row.accent-annotation {
+  border-left-color: var(--annotation);
+}
+
+.event-row.accent-screenshot {
+  border-left-color: var(--screenshot);
+}
+
+.event-time {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.event-label {
+  color: var(--text);
+  font-weight: 500;
+  flex: 0 0 auto;
+}
+
+.event-detail {
+  color: var(--text-dim);
+  flex: 1 1 auto;
+  word-break: break-word;
+}
+
+.screenshot-placeholder {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.screenshot-placeholder:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.screenshot-thumb {
+  max-width: 100%;
+  margin-top: 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  display: block;
+}
+
+/* ── Controls ── */
+
+#controls {
+  flex: 0 0 auto;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#pii-mode-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px 8px;
+  margin: 0;
+}
+
+#pii-mode-fieldset legend {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 4px;
+}
+
+.pii-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.pii-mode-option .hint {
+  color: var(--text-dim);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+#metrics-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.metrics-size.over-threshold {
+  color: var(--warning);
+  font-weight: 500;
+}
+
+#annotation-text {
+  width: 100%;
+  min-height: 64px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+
+#annotation-text:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.sp-row {
+  display: flex;
+  gap: 8px;
+}
+
+.sp-btn {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-elev-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.sp-btn:hover:not(:disabled) {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+
+.sp-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sp-btn.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.sp-btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.sp-btn.danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
+.sp-btn.danger:hover:not(:disabled) {
+  background: #dc2626;
+}

@@ -17,9 +17,9 @@ export interface SessionStorageApi {
 function defaultApi(): SessionStorageApi {
   // chrome.storage.session is available in MV3 (Chrome ≥ 102). DeskCheck
   // requires `sidePanel` (Chrome ≥ 114), so this is always present.
-  // @ts-expect-error — chrome typings expose `session` on MV3 builds.
-  const session = chrome.storage.session as SessionStorageApi;
-  return session;
+  // The @types/chrome ambient declaration includes `session` so no
+  // suppression is needed.
+  return (chrome.storage as unknown as { session: SessionStorageApi }).session;
 }
 
 function key(windowId: number): string {
