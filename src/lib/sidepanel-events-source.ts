@@ -1,16 +1,19 @@
-// STUB — Phase 3 (failing acceptance tests). Phase 4 will implement.
-//
 // Wrapper around chrome.storage.onChanged that exposes a clean
-// "subscribe to events" API. The handler:
-//   - reads change.newValue DIRECTLY (never calls getEvents() or any
-//     store accessor — pinned by spy test)
-//   - computes a delta as newValue.slice(lastSeenLength) (append-only)
-//   - if newValue.length < lastSeenLength OR newValue is undefined,
-//     fires onReset(newValue ?? [])
+// "subscribe to events" API for the side panel.
 //
-// See selected-plan.md architectural decision #2.
+// PRIVACY / INVARIANT:
+// - Reads change.newValue DIRECTLY (never calls getEvents() or any
+//   store accessor — pinned by spy test in sidepanel-events-source.test.ts).
+// - Computes a delta as `newValue.slice(lastSeenLength)` (append-only).
+// - If newValue.length < lastSeenLength OR newValue is undefined,
+//   fires `onReset(newValue ?? [])` instead of `onAppend`.
+//
+// The append-only contract is pinned on the write side by
+// session-store.test.ts; this subscriber depends on it but tolerates
+// shrinks gracefully via the reset path.
 
 import type { TimelineEvent } from "../types";
+import { STORAGE_EVENTS } from "../constants";
 
 export interface OnChangedListener {
   (
@@ -44,9 +47,63 @@ export interface Subscription {
   unsubscribe(): void;
 }
 
+function defaultOnChanged(): StorageOnChangedApi {
+  return chrome.storage.onChanged as unknown as StorageOnChangedApi;
+}
+
 export function subscribeToEvents(
-  _callbacks: EventsSourceCallbacks,
-  _options?: SubscribeOptions,
+  callbacks: EventsSourceCallbacks,
+  options: SubscribeOptions = {},
 ): Subscription {
-  throw new Error("sidepanel-events-source.subscribeToEvents not implemented");
+  const api = options.onChanged ?? defaultOnChanged();
+  const storageKey = options.storageKey ?? STORAGE_EVENTS;
+  let lastSeenLength = options.initial?.length ?? 0;
+
+  const listener: OnChangedListener = (changes, areaName) => {
+    if (areaName !== "local") return;
+    if (!(storageKey in changes)) return;
+
+    const change = changes[storageKey];
+    const newValue = change.newValue as TimelineEvent[] | undefined;
+
+    if (newValue === undefined) {
+      lastSeenLength = 0;
+      callbacks.onReset([]);
+      return;
+    }
+
+    if (!Array.isArray(newValue)) {
+      // Defensive: if storage is corrupted into a non-array shape,
+      // treat it as a reset to empty.
+      lastSeenLength = 0;
+      callbacks.onReset([]);
+      return;
+    }
+
+    if (newValue.length < lastSeenLength) {
+      lastSeenLength = newValue.length;
+      callbacks.onReset(newValue);
+      return;
+    }
+
+    if (newValue.length === lastSeenLength) {
+      // No-op: same-length update (e.g. metadata-only rewrite). The
+      // append-only contract means an in-place edit at the same length
+      // is suspicious — surface as a full reset to keep the UI honest.
+      callbacks.onReset(newValue);
+      return;
+    }
+
+    const appended = newValue.slice(lastSeenLength);
+    lastSeenLength = newValue.length;
+    callbacks.onAppend(appended);
+  };
+
+  api.addListener(listener);
+
+  return {
+    unsubscribe() {
+      api.removeListener(listener);
+    },
+  };
 }

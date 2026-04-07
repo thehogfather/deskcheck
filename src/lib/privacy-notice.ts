@@ -1,8 +1,9 @@
-// STUB — Phase 3 (failing acceptance tests). Phase 4 will implement.
-//
 // Single source of truth for the first-run privacy notice view-model.
-// Both the in-page widget and the side panel render from this model so
-// the bullets cannot drift between surfaces.
+// Both the in-page widget (src/content/widget.ts) and the side panel
+// (src/sidepanel/sidepanel.ts) render from this model so the bullets
+// cannot drift between surfaces. Pinned by privacy-notice.test.ts.
+
+import { PRIVACY_NOTICE_BULLETS } from "./privacy";
 
 export interface FirstRunNoticeModel {
   title: string;
@@ -11,5 +12,9 @@ export interface FirstRunNoticeModel {
 }
 
 export function buildFirstRunNoticeModel(): FirstRunNoticeModel {
-  throw new Error("privacy-notice.buildFirstRunNoticeModel not implemented");
+  return {
+    title: "Before you start recording",
+    bullets: PRIVACY_NOTICE_BULLETS,
+    dismissLabel: "Got it",
+  };
 }

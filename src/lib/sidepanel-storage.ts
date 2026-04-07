@@ -1,11 +1,11 @@
-// STUB — Phase 3 (failing acceptance tests). Phase 4 will implement.
-//
 // Per-window scroll position persistence for the side panel. Backed by
 // chrome.storage.session (in-memory, cleared on browser restart) so
 // scroll position does not survive a browser restart — restoring stale
-// scroll positions would be confusing.
+// scroll positions across restarts would be confusing.
 //
-// Rejects WINDOW_ID_NONE (-1) as a defensive measure.
+// Rejects WINDOW_ID_NONE (-1) as a defensive measure: a focus-changed
+// event with WINDOW_ID_NONE means "no Chrome window has focus", which
+// is never a valid scroll context.
 
 export const STORAGE_SIDE_PANEL_SCROLL_PREFIX = "deskcheck_sidepanel_scroll_";
 
@@ -14,17 +14,35 @@ export interface SessionStorageApi {
   set(items: Record<string, unknown>): Promise<void>;
 }
 
+function defaultApi(): SessionStorageApi {
+  // chrome.storage.session is available in MV3 (Chrome ≥ 102). DeskCheck
+  // requires `sidePanel` (Chrome ≥ 114), so this is always present.
+  // @ts-expect-error — chrome typings expose `session` on MV3 builds.
+  const session = chrome.storage.session as SessionStorageApi;
+  return session;
+}
+
+function key(windowId: number): string {
+  return `${STORAGE_SIDE_PANEL_SCROLL_PREFIX}${windowId}`;
+}
+
 export async function getScrollPosition(
-  _windowId: number,
-  _api?: SessionStorageApi,
+  windowId: number,
+  api: SessionStorageApi = defaultApi(),
 ): Promise<number> {
-  throw new Error("sidepanel-storage.getScrollPosition not implemented");
+  if (!Number.isFinite(windowId) || windowId < 0) return 0;
+  const k = key(windowId);
+  const result = await api.get(k);
+  const raw = result[k];
+  return typeof raw === "number" && raw >= 0 ? raw : 0;
 }
 
 export async function setScrollPosition(
-  _windowId: number,
-  _scrollY: number,
-  _api?: SessionStorageApi,
+  windowId: number,
+  scrollY: number,
+  api: SessionStorageApi = defaultApi(),
 ): Promise<void> {
-  throw new Error("sidepanel-storage.setScrollPosition not implemented");
+  if (!Number.isFinite(windowId) || windowId < 0) return;
+  const clamped = Math.max(0, Math.floor(scrollY));
+  await api.set({ [key(windowId)]: clamped });
 }
