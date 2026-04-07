@@ -111,7 +111,9 @@ describe("recorder PII modes", () => {
       expect((ie[0] as any).value).toBeUndefined();
       expect((ie[0] as any).value_metadata).toMatchObject({
         length: 19,
-        has_digits: true,
+        letter_count: 12,
+        digit_count: 5,
+        special_count: 2,
       });
     });
 

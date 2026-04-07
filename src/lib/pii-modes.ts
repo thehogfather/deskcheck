@@ -11,19 +11,54 @@ export const DEFAULT_PII_MODE: PiiCaptureMode = "full";
 export interface InputMetadata {
   length: number;
   word_count: number;
-  has_digits: boolean;
-  has_emoji: boolean;
-  has_special: boolean;
+  letter_count: number;
+  digit_count: number;
+  emoji_count: number;
+  whitespace_count: number;
+  special_count: number;
+}
+
+// Counts visual emoji units (grapheme clusters containing an
+// Extended_Pictographic code point). ZWJ sequences like 👨‍💻 and skin-tone
+// modifiers collapse to one grapheme, matching what a user would perceive
+// as a single emoji — important for letting an engineer reproduce the
+// input shape from the metadata alone.
+function countEmojiGraphemes(value: string): number {
+  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  let count = 0;
+  for (const { segment } of segmenter.segment(value)) {
+    if (/\p{Extended_Pictographic}/u.test(segment)) count++;
+  }
+  return count;
+}
+
+// Counts code points that carry the Extended_Pictographic property. Used
+// to subtract emoji from `special_count` so a single emoji is not
+// double-counted as both an emoji and a special character.
+function countEmojiCodePoints(value: string): number {
+  return (value.match(/\p{Extended_Pictographic}/gu) ?? []).length;
 }
 
 export function extractInputMetadata(value: string): InputMetadata {
   const trimmed = value.trim();
+  const word_count = trimmed === "" ? 0 : trimmed.split(/\s+/).length;
+  const letter_count = (value.match(/\p{L}/gu) ?? []).length;
+  const digit_count = (value.match(/\p{N}/gu) ?? []).length;
+  const whitespace_count = (value.match(/\s/gu) ?? []).length;
+  const emoji_count = countEmojiGraphemes(value);
+  // "special" = anything that isn't a letter, digit, whitespace, or part of
+  // an emoji. We count non-basic code points, then subtract emoji code
+  // points so a single emoji is not also counted as a special character.
+  const non_basic_count = (value.match(/[^\p{L}\p{N}\s]/gu) ?? []).length;
+  const special_count = Math.max(0, non_basic_count - countEmojiCodePoints(value));
   return {
     length: value.length,
-    word_count: trimmed === "" ? 0 : trimmed.split(/\s+/).length,
-    has_digits: /\d/.test(value),
-    has_emoji: /\p{Extended_Pictographic}/u.test(value),
-    has_special: /[^\p{L}\p{N}\s]/u.test(value),
+    word_count,
+    letter_count,
+    digit_count,
+    emoji_count,
+    whitespace_count,
+    special_count,
   };
 }
 

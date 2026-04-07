@@ -24,9 +24,11 @@ describe("extractInputMetadata", () => {
     expect(extractInputMetadata("")).toEqual({
       length: 0,
       word_count: 0,
-      has_digits: false,
-      has_emoji: false,
-      has_special: false,
+      letter_count: 0,
+      digit_count: 0,
+      emoji_count: 0,
+      whitespace_count: 0,
+      special_count: 0,
     });
   });
 
@@ -34,9 +36,11 @@ describe("extractInputMetadata", () => {
     expect(extractInputMetadata("hello")).toEqual({
       length: 5,
       word_count: 1,
-      has_digits: false,
-      has_emoji: false,
-      has_special: false,
+      letter_count: 5,
+      digit_count: 0,
+      emoji_count: 0,
+      whitespace_count: 0,
+      special_count: 0,
     });
   });
 
@@ -44,58 +48,110 @@ describe("extractInputMetadata", () => {
     const m = extractInputMetadata("hello world");
     expect(m.length).toBe(11);
     expect(m.word_count).toBe(2);
+    expect(m.letter_count).toBe(10);
+    expect(m.whitespace_count).toBe(1);
   });
 
   it("only whitespace counts as zero words", () => {
     const m = extractInputMetadata("   ");
     expect(m.length).toBe(3);
     expect(m.word_count).toBe(0);
+    expect(m.whitespace_count).toBe(3);
+    expect(m.letter_count).toBe(0);
   });
 
-  it("collapses repeated spaces in word count", () => {
-    expect(extractInputMetadata("one  two   three").word_count).toBe(3);
+  it("collapses repeated spaces in word count but counts each whitespace char", () => {
+    const m = extractInputMetadata("one  two   three");
+    expect(m.word_count).toBe(3);
+    expect(m.whitespace_count).toBe(5);
   });
 
-  it("digits are detected", () => {
-    expect(extractInputMetadata("abc123").has_digits).toBe(true);
-    expect(extractInputMetadata("abc").has_digits).toBe(false);
+  it("digit count is exact, not a flag", () => {
+    expect(extractInputMetadata("abc123").digit_count).toBe(3);
+    expect(extractInputMetadata("abc").digit_count).toBe(0);
+    expect(extractInputMetadata("4111-1111-1111-1111").digit_count).toBe(16);
   });
 
-  it("special characters are detected", () => {
-    expect(extractInputMetadata("hello!").has_special).toBe(true);
-    expect(extractInputMetadata("hello").has_special).toBe(false);
-    expect(extractInputMetadata("$100").has_special).toBe(true);
+  it("special count is exact, not a flag", () => {
+    expect(extractInputMetadata("hello!").special_count).toBe(1);
+    expect(extractInputMetadata("hello").special_count).toBe(0);
+    expect(extractInputMetadata("$100").special_count).toBe(1);
+    expect(extractInputMetadata("a!b@c#").special_count).toBe(3);
   });
 
-  it("plain emoji is detected", () => {
-    expect(extractInputMetadata("hello \u{1F600}").has_emoji).toBe(true);
+  it("special and digit counts are independent", () => {
+    const m = extractInputMetadata("a1!b2@c3#");
+    expect(m.letter_count).toBe(3);
+    expect(m.digit_count).toBe(3);
+    expect(m.special_count).toBe(3);
   });
 
-  it("ZWJ emoji sequence is detected", () => {
-    // Man + ZWJ + Laptop
+  it("plain emoji is counted", () => {
+    const m = extractInputMetadata("hello \u{1F600}");
+    expect(m.emoji_count).toBe(1);
+    expect(m.letter_count).toBe(5);
+    expect(m.whitespace_count).toBe(1);
+  });
+
+  it("multiple emojis are counted", () => {
+    const m = extractInputMetadata("\u{1F600}\u{1F601}\u{1F602}");
+    expect(m.emoji_count).toBe(3);
+  });
+
+  it("ZWJ emoji sequence counts as one visual emoji", () => {
+    // Man + ZWJ + Laptop = single grapheme 👨‍💻
     const zwj = "\u{1F468}\u200D\u{1F4BB}";
-    expect(extractInputMetadata(zwj).has_emoji).toBe(true);
+    expect(extractInputMetadata(zwj).emoji_count).toBe(1);
+  });
+
+  it("emoji does not inflate special_count", () => {
+    const m = extractInputMetadata("hi \u{1F600}");
+    expect(m.emoji_count).toBe(1);
+    expect(m.special_count).toBe(0);
   });
 
   it("accented latin characters are letters, not special", () => {
     const m = extractInputMetadata("naïve café");
-    expect(m.has_special).toBe(false);
+    expect(m.special_count).toBe(0);
     expect(m.word_count).toBe(2);
+    expect(m.letter_count).toBe(9);
   });
 
   it("CJK characters are letters, not special", () => {
     const m = extractInputMetadata("中文");
-    expect(m.has_special).toBe(false);
+    expect(m.special_count).toBe(0);
+    expect(m.letter_count).toBe(2);
     expect(m.length).toBe(2);
   });
 
-  it("tab and newline split words", () => {
-    expect(extractInputMetadata("a\nb\tc").word_count).toBe(3);
+  it("tab and newline split words and count as whitespace", () => {
+    const m = extractInputMetadata("a\nb\tc");
+    expect(m.word_count).toBe(3);
+    expect(m.whitespace_count).toBe(2);
+    expect(m.letter_count).toBe(3);
   });
 
   it("very long string length is exact", () => {
     const long = "a".repeat(10000);
-    expect(extractInputMetadata(long).length).toBe(10000);
+    const m = extractInputMetadata(long);
+    expect(m.length).toBe(10000);
+    expect(m.letter_count).toBe(10000);
+  });
+
+  it("mixed realistic input for repro fidelity", () => {
+    // "Order #42 $9.99" — no emoji to keep length/word math simple
+    const m = extractInputMetadata("Order #42 $9.99");
+    expect(m.length).toBe(15);
+    // words: ["Order", "#42", "$9.99"]
+    expect(m.word_count).toBe(3);
+    // letters: "Order" = 5
+    expect(m.letter_count).toBe(5);
+    // digits: "42" + "999" = 5
+    expect(m.digit_count).toBe(5);
+    expect(m.emoji_count).toBe(0);
+    expect(m.whitespace_count).toBe(2);
+    // specials: #, $, .
+    expect(m.special_count).toBe(3);
   });
 });
 
@@ -170,7 +226,9 @@ describe("capturePayloadForMode", () => {
       expect(out.value).toBeUndefined();
       expect(out.value_metadata).toBeDefined();
       expect(out.value_metadata!.length).toBe(19);
-      expect(out.value_metadata!.has_digits).toBe(true);
+      expect(out.value_metadata!.digit_count).toBe(5);
+      expect(out.value_metadata!.letter_count).toBe(12);
+      expect(out.value_metadata!.special_count).toBe(2); // two hyphens
     });
 
     it("emits value_metadata for password fields (length leaks but value never does)", () => {
