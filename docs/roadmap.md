@@ -119,6 +119,59 @@ status: draft
   - [ ] Screenshots taken after a switch capture the new tab, never the old one
   - [ ] First-run notice and pre-export reminder copy are updated to mention that users may opt in to move the recording across tabs
 
+### 8. Side panel UX with live event timeline
+- **Persona**: Bug Reporter
+- **Goal**: Provide a persistent, always-visible recording surface that shows the full event timeline as it accumulates, instead of a transient popup that loses context on blur
+- **Impact**: High | **Effort**: Large
+- **Description**: Move the primary DeskCheck UI from the browser action popup into a Chrome side panel (`chrome.sidePanel` API) that fills the full height of the browser window. Clicking the toolbar icon opens the side panel directly — the current popup (with its redundant "Start Session" button) is removed entirely, and the start control is moved into the side panel form. Visually modelled on the Claude Chrome extension's side panel: a scrollable event feed in the upper region, a sticky input/control form pinned to the bottom. The upper region shows a chronological list of captured events — DOM interactions, console errors, network failures, annotations, and screenshots — each with its timestamp. Any event that has an associated image (screenshots, annotation attachments) renders a small thumbnail inline. The lower region contains the existing session form (start/stop, annotation textarea, screenshot button, session metrics). The side panel persists across tab switches within the same window so recording state and the event list remain visible.
+- **Definition of done**:
+  - [ ] Extension registers a side panel via `chrome.sidePanel` and clicking the toolbar action opens the side panel directly (no popup in between)
+  - [ ] Legacy popup HTML/JS is removed from the build (or reduced to a no-op launcher that immediately opens the side panel)
+  - [ ] The "Start Session" control lives in the side panel form, not in a popup
+  - [ ] Side panel fills the full browser height and renders a two-region layout (events above, form below)
+  - [ ] Upper region shows a live, chronological list of all captured events with per-event timestamp and type label
+  - [ ] Events that include a screenshot render a small thumbnail inline in the list
+  - [ ] Event list updates in real time as new events are captured (no manual refresh)
+  - [ ] Lower region contains the existing controls: start/stop, annotation textarea, screenshot, session metrics from feature #1
+  - [ ] Event list scrolls independently of the form region; form stays pinned to the bottom
+  - [ ] Side panel state (open/closed, scroll position) persists across tab switches within the same window
+  - [ ] Visual styling is consistent with the existing widget theme and matches the reference side-panel aesthetic (dark theme, rounded input, compact list rows)
+
+### 9. Automatic tab group for active DeskCheck tabs
+- **Persona**: Bug Reporter
+- **Goal**: Give users immediate visual feedback about which tabs DeskCheck is actively recording, preventing confusion when many tabs are open
+- **Impact**: Medium | **Effort**: Small
+- **Description**: When a recording session starts on a tab, automatically add that tab to a dedicated "DeskCheck" tab group using the `chrome.tabGroups` API — a distinctive color and label so the user can see at a glance which tabs are under recording. When the session ends (or the tab is closed), remove the tab from the group; clean up the group if it becomes empty. If the group already exists in the current window, reuse it rather than creating a duplicate.
+- **Dependencies**: Independent of other roadmap items, but pairs naturally with #8 (side panel) as complementary "active session visibility" cues.
+- **Definition of done**:
+  - [ ] `tabGroups` permission is added to `manifest.json`
+  - [ ] Starting a session adds the active tab to a "DeskCheck" tab group in the current window
+  - [ ] Tab group has a distinctive color and a clear label (e.g., "DeskCheck")
+  - [ ] If a "DeskCheck" group already exists in the window, the tab is added to it rather than creating a new one
+  - [ ] Ending a session removes the tab from the group
+  - [ ] If the group becomes empty after a session ends, the group is cleaned up
+  - [ ] Closing a recorded tab while a session is active does not leave orphaned group state
+  - [ ] Tab group behaviour is unit/integration-tested where possible (chrome.tabGroups API mocked)
+
+### 10. Session lifecycle controls: pause, resume, stop, discard
+- **Persona**: Bug Reporter
+- **Goal**: Give users full control over an in-progress recording — pause to skip irrelevant activity, resume when ready, stop to finalise, or discard entirely if they want to start over without exporting junk data
+- **Impact**: High | **Effort**: Medium
+- **Description**: Add lifecycle controls to the side panel form: **Pause** (stop capturing new events but keep the existing session intact and visible), **Resume** (re-attach capture without losing the prior timeline), **Stop** (finalise the session — same as today's "Stop & Download"), and **Discard** (delete all events, screenshots, and session metadata for the current session and return the UI to its pre-session state). Discard must be destructive and irreversible, so it must show a confirmation prompt that clearly states "this will permanently delete N events and M screenshots" before proceeding. Pause/Resume should also be reflected in the event list (e.g., a visible "paused at 12:34:56" marker) so the user can see continuity gaps. Session state (`running` / `paused` / `stopped`) is recorded in session metadata so paused regions are unambiguous in the export.
+- **Dependencies**: Feature #8 (Side panel UX) — the new controls live in the side panel form, and Discard needs the event list to show what is about to be deleted. Must ship after #8.
+- **Definition of done**:
+  - [ ] Side panel form exposes four controls during an active session: Pause, Resume, Stop, Discard
+  - [ ] Pause stops capturing new interactions, console, network, and screenshot events but preserves the existing session and event list
+  - [ ] Resume re-enables capture without creating a new session or losing the prior timeline
+  - [ ] Pause/Resume transitions are recorded as timeline markers in `session.json` (e.g., `{type: "session_paused", timestamp: ...}`) so gaps are explicit
+  - [ ] Stop behaves as today's "Stop & Download" — finalises the session and triggers export
+  - [ ] Discard shows a confirmation dialog that names the concrete data at risk ("Delete N events and M screenshots? This cannot be undone.") and requires explicit confirmation
+  - [ ] After confirmed discard, all events, screenshots, and session metadata for that session are removed from storage (chrome.storage.local and/or OPFS depending on feature #5 status)
+  - [ ] After discard, the side panel returns to its idle/pre-session state and a new session can be started immediately
+  - [ ] Cancelling the discard confirmation leaves the session untouched
+  - [ ] Session metadata includes a `status` field reflecting `running` / `paused` / `stopped` for consumers of the export
+  - [ ] Lifecycle transitions are unit-tested (pause/resume state machine, discard storage cleanup, confirmation cancel path)
+
 ---
 
 ## Parked
@@ -150,8 +203,12 @@ graph LR
     3[3. Schema docs]
     4[4. PII capture modes]
     6[6. Voice annotations]
+    8[8. Side panel UX] --> 10[10. Lifecycle controls]
+    9[9. Active tab group]
 ```
 
 - Feature #5 (Incremental persistence) benefits from #1 (Session size indicator) shipping first — users can see the improvement, and the indicator's calculation needs to be compatible with both storage backends.
 - Feature #7 (Opt-in tab switching) builds on feature #2 — the "recorded tab only" invariant is the precondition that gives tab switching a clear meaning (moving an explicit pointer rather than implicitly following the user).
+- Feature #10 (Lifecycle controls) depends on #8 (Side panel UX) — the pause/resume/stop/discard controls live in the side panel form and the discard confirmation needs the event list to describe what will be deleted.
+- Features #8 (Side panel UX) and #9 (Active tab group) are complementary "active session visibility" cues but can ship independently.
 - All other features are independent.
