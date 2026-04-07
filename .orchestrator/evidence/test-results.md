@@ -1,57 +1,46 @@
----
-feature_id: feature-2
-generated: 2026-04-07
----
+# Test results — feature-4 (PII capture modes)
 
-# Test Results — Feature #2
+Run: 2026-04-07 (phase 5 validation gate)
 
-## `make test` output (final run)
+## make typecheck
+Exit 0. Clean.
 
+## make test
 ```
-npx vitest run
-
- RUN  v4.1.2 /Users/patrick/Documents/workspace/deskcheck/.claude/worktrees/feature-sensitive-data-warnings
-
-
- Test Files  5 passed (5)
-      Tests  72 passed (72)
+Test Files  6 passed (6)
+     Tests  116 passed (116)
+  Duration  ~630ms
 ```
 
-## `make typecheck` output (final run)
+Test files run:
+- src/lib/dom-utils.test.ts
+- src/lib/exporter.test.ts (modified — pii_mode + 1.1.0 round-trip)
+- src/lib/session-metrics.test.ts
+- src/lib/encoding.test.ts
+- src/lib/pii-modes.test.ts (NEW — pure module + negative property test)
+- src/content/recorder.test.ts (NEW — jsdom mode behavior + negative property test)
 
-```
-npx tsc --noEmit
-```
+## make build
+Exit 0. dist/ produced:
+- dist/src/popup/index.html (0.94 kB)
+- dist/src/popup/index.js (2.43 kB)
+- dist/src/background/service-worker.js (19.64 kB)
+- dist/src/content/index.js (15.17 kB)
+- dist/manifest.json (1.04 kB)
 
-(no diagnostics — exit 0)
+## DoD coverage
+- [x] Mode selector radios in popup (HTML structure + popup.ts wiring; visually verifiable on extension load)
+- [x] Full mode preserves existing behavior — verified by `pii-modes.test.ts > capturePayloadForMode > full mode` and `recorder.test.ts > full mode`
+- [x] Metadata mode emits metadata, never raw value — verified by `pii-modes.test.ts > metadata mode` AND the negative property tests in both `pii-modes.test.ts` and `recorder.test.ts`
+- [x] None mode suppresses input events — verified by `recorder.test.ts > none mode` (no listeners registered, no events emitted)
+- [x] pii_mode in session.json — verified by `exporter.test.ts > round-trips pii_mode in exported session`
+- [x] Default Full — verified by `parsePiiMode(undefined) === "full"`, `recorder.test.ts > default opts behaves like full`, and `index.html` `checked` attribute on Full radio
+- [x] Schema 1.1.0 — verified by `exporter.test.ts > produces a valid zip`
 
-## `make build` output (tail)
-
-```
-✓ All steps completed.
-
-transforming...
-✓ 1 modules transformed.
-rendering chunks...
-computing gzip size...
-dist/manifest.json  1.04 kB │ gzip: 0.48 kB
-✓ built in 548ms
-```
-
-## Acceptance test mapping
-
-| Matrix # | Test name | File | Status |
-|----------|-----------|------|--------|
-| 1 | mentions visible screen content | `src/lib/privacy.test.ts` | PASS |
-| 2 | mentions form inputs | `src/lib/privacy.test.ts` | PASS |
-| 3 | mentions network headers | `src/lib/privacy.test.ts` | PASS |
-| 4 | shouldShowFirstRunNotice(false) === true | `src/lib/privacy.test.ts` | PASS |
-| 5 | shouldShowFirstRunNotice(true) === false | `src/lib/privacy.test.ts` | PASS |
-| 6 | PRIVACY_MD_TEMPLATE non-empty + H1 | `src/lib/privacy.test.ts` | PASS |
-| 7 | PRIVACY_MD_TEMPLATE mentions all three topics | `src/lib/privacy.test.ts` | PASS |
-| 8 | PRIVACY_MD_TEMPLATE notes local-use-only | `src/lib/privacy.test.ts` | PASS |
-| 9 | PRIVACY_MD_TEMPLATE mentions screenshots/sensitive | `src/lib/privacy.test.ts` | PASS |
-| 10 | empty zip contains PRIVACY.md | `src/lib/exporter.test.ts` | PASS |
-| 11 | screenshots-bearing zip contains PRIVACY.md | `src/lib/exporter.test.ts` | PASS |
-| 12 | PRIVACY.md content references screenshots/sensitive | `src/lib/exporter.test.ts` | PASS |
-| 13 | schema_version unchanged | `src/lib/exporter.test.ts` (existing) | PASS |
+## Privacy chokepoint audit
+The only place that reads `target.value` for input timeline events is
+`capturePayloadForMode` in `src/lib/pii-modes.ts`. The recorder skips
+input/change listener registration entirely under `none` mode. Negative
+property tests assert that for fixed sensitive strings (passwords, account
+numbers, tokens, unicode), the raw value never appears in the serialized
+event JSON for `metadata` or `none` modes.

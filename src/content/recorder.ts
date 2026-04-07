@@ -1,10 +1,22 @@
 import { TimelineEventInput, Viewport } from "../types";
 import { SCROLL_THROTTLE, RESIZE_THROTTLE } from "../constants";
 import { getElementInfo, isDeskCheckUi, throttle } from "../lib/dom-utils";
+import {
+  capturePayloadForMode,
+  DEFAULT_PII_MODE,
+  type PiiCaptureMode,
+} from "../lib/pii-modes";
 
 type EventCallback = (event: TimelineEventInput) => void;
 
-export function startRecording(onEvent: EventCallback): () => void {
+export interface RecorderOptions {
+  piiMode: PiiCaptureMode;
+}
+
+export function startRecording(
+  onEvent: EventCallback,
+  opts: RecorderOptions = { piiMode: DEFAULT_PII_MODE },
+): () => void {
   const pageUrl = () => location.href;
   const now = () => new Date().toISOString();
   const cleanups: (() => void)[] = [];
@@ -36,59 +48,62 @@ export function startRecording(onEvent: EventCallback): () => void {
   }, { capture: true });
 
   // ── Input (debounced — emit final value, not every keystroke) ──
+  // PRIVACY-CRITICAL: do not read target.value outside capturePayloadForMode.
+  // In "none" mode we do not register input/change listeners at all, so the
+  // recorder cannot accidentally observe form values.
   const INPUT_DEBOUNCE = 800;
   const inputTimers = new Map<EventTarget, ReturnType<typeof setTimeout>>();
 
-  function emitInput(target: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement) {
-    const value =
-      target instanceof HTMLInputElement && target.type === "password"
-        ? "[password]"
-        : (target as HTMLInputElement).value?.slice(0, 200);
+  if (opts.piiMode !== "none") {
+    const emitInput = (
+      target: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+    ) => {
+      const payload = capturePayloadForMode(target, opts.piiMode);
+      onEvent({
+        timestamp: now(),
+        type: "interaction",
+        subtype: "input",
+        element: getElementInfo(target),
+        ...payload,
+        page_url: pageUrl(),
+      });
+    };
 
-    onEvent({
-      timestamp: now(),
-      type: "interaction",
-      subtype: "input",
-      element: getElementInfo(target),
-      value,
-      page_url: pageUrl(),
+    listen(document, "input", (e) => {
+      const target = e.target as HTMLInputElement | HTMLTextAreaElement;
+      if (!target?.tagName || isDeskCheckUi(target)) return;
+      const tag = target.tagName.toLowerCase();
+      if (tag !== "input" && tag !== "textarea" && tag !== "select") return;
+
+      // Clear any pending timer for this field, restart the debounce
+      const prev = inputTimers.get(target);
+      if (prev) clearTimeout(prev);
+      inputTimers.set(target, setTimeout(() => {
+        inputTimers.delete(target);
+        emitInput(target);
+      }, INPUT_DEBOUNCE));
+    }, { capture: true });
+
+    // Also emit immediately on change (blur / Enter) and cancel any pending debounce
+    listen(document, "change", (e) => {
+      const target = e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+      if (!target?.tagName || isDeskCheckUi(target)) return;
+      const tag = target.tagName.toLowerCase();
+      if (tag !== "input" && tag !== "textarea" && tag !== "select") return;
+
+      const prev = inputTimers.get(target);
+      if (prev) {
+        clearTimeout(prev);
+        inputTimers.delete(target);
+      }
+      emitInput(target);
+    }, { capture: true });
+
+    cleanups.push(() => {
+      for (const timer of inputTimers.values()) clearTimeout(timer);
+      inputTimers.clear();
     });
   }
-
-  listen(document, "input", (e) => {
-    const target = e.target as HTMLInputElement | HTMLTextAreaElement;
-    if (!target?.tagName || isDeskCheckUi(target)) return;
-    const tag = target.tagName.toLowerCase();
-    if (tag !== "input" && tag !== "textarea" && tag !== "select") return;
-
-    // Clear any pending timer for this field, restart the debounce
-    const prev = inputTimers.get(target);
-    if (prev) clearTimeout(prev);
-    inputTimers.set(target, setTimeout(() => {
-      inputTimers.delete(target);
-      emitInput(target);
-    }, INPUT_DEBOUNCE));
-  }, { capture: true });
-
-  // Also emit immediately on change (blur / Enter) and cancel any pending debounce
-  listen(document, "change", (e) => {
-    const target = e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
-    if (!target?.tagName || isDeskCheckUi(target)) return;
-    const tag = target.tagName.toLowerCase();
-    if (tag !== "input" && tag !== "textarea" && tag !== "select") return;
-
-    const prev = inputTimers.get(target);
-    if (prev) {
-      clearTimeout(prev);
-      inputTimers.delete(target);
-    }
-    emitInput(target);
-  }, { capture: true });
-
-  cleanups.push(() => {
-    for (const timer of inputTimers.values()) clearTimeout(timer);
-    inputTimers.clear();
-  });
 
   // ── Scroll (throttled) ──
   const handleScroll = throttle(() => {

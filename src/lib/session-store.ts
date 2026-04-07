@@ -4,6 +4,7 @@ import {
   STORAGE_EVENTS,
   STORAGE_SCREENSHOTS,
 } from "../constants";
+import { DEFAULT_PII_MODE, parsePiiMode, type PiiCaptureMode } from "./pii-modes";
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -13,6 +14,7 @@ export async function createSession(
   tabId: number,
   url: string,
   viewport: Viewport,
+  piiMode: PiiCaptureMode = DEFAULT_PII_MODE,
 ): Promise<SessionMetadata> {
   const session: SessionMetadata = {
     id: generateId(),
@@ -23,6 +25,7 @@ export async function createSession(
     initial_url: url,
     user_agent: navigator.userAgent,
     viewport,
+    pii_mode: piiMode,
   };
   await chrome.storage.local.set({
     [STORAGE_SESSION]: session,
@@ -46,7 +49,10 @@ export async function endSession(): Promise<SessionMetadata | null> {
 
 export async function getSession(): Promise<SessionMetadata | null> {
   const result = await chrome.storage.local.get(STORAGE_SESSION);
-  return (result[STORAGE_SESSION] as SessionMetadata) ?? null;
+  const session = result[STORAGE_SESSION] as SessionMetadata | undefined;
+  if (!session) return null;
+  // Legacy compat: sessions written before pii_mode existed default to "full"
+  return { ...session, pii_mode: parsePiiMode(session.pii_mode) };
 }
 
 export async function appendEvent(

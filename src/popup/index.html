@@ -9,6 +9,12 @@
 <body>
   <div id="app">
     <p id="status"></p>
+    <fieldset id="pii-mode-fieldset">
+      <legend>Capture inputs</legend>
+      <label><input type="radio" name="pii-mode" value="full" checked> Full <span class="hint">values</span></label>
+      <label><input type="radio" name="pii-mode" value="metadata"> Metadata <span class="hint">length only</span></label>
+      <label><input type="radio" name="pii-mode" value="none"> None <span class="hint">skip inputs</span></label>
+    </fieldset>
     <button id="start-btn">Start Session</button>
     <button id="download-btn" class="hidden">Download Report</button>
   </div>
