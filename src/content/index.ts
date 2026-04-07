@@ -2,6 +2,11 @@ import { Message, TimelineEventInput } from "../types";
 import { STORAGE_SESSION } from "../constants";
 import { startRecording } from "./recorder";
 import { showWidget, hideWidget, focusWidget } from "./widget";
+import {
+  DEFAULT_PII_MODE,
+  parsePiiMode,
+  type PiiCaptureMode,
+} from "../lib/pii-modes";
 
 // Prevent duplicate injection (manifest + programmatic)
 const GUARD = "__deskcheck_loaded__";
@@ -27,10 +32,10 @@ function init() {
       });
   }
 
-  function startSession() {
+  function startSession(piiMode: PiiCaptureMode = DEFAULT_PII_MODE) {
     if (isRecording) return;
     isRecording = true;
-    stopRecording = startRecording(sendEvent);
+    stopRecording = startRecording(sendEvent, { piiMode });
     showWidget();
   }
 
@@ -47,7 +52,7 @@ function init() {
 
   chrome.runtime.onMessage.addListener((msg: Message) => {
     if (msg.type === "SESSION_STARTED") {
-      startSession();
+      startSession(parsePiiMode(msg.piiMode));
     } else if (msg.type === "SESSION_STOPPED") {
       stopSession();
     } else if (msg.type === "FOCUS_ANNOTATION") {
@@ -64,7 +69,7 @@ function init() {
       if (response?.recording) {
         // Verify we're on the right tab by checking if the service worker
         // will accept our events (it filters by sender.tab.id)
-        startSession();
+        startSession(parsePiiMode(response.piiMode));
       }
     })
     .catch((err) => {

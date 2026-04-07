@@ -1,3 +1,5 @@
+import type { PiiCaptureMode, InputMetadata } from "./lib/pii-modes";
+
 // ── Session ──
 
 export interface SessionMetadata {
@@ -9,6 +11,7 @@ export interface SessionMetadata {
   initial_url: string;
   user_agent: string;
   viewport: Viewport;
+  pii_mode: PiiCaptureMode;
 }
 
 export interface Viewport {
@@ -46,6 +49,7 @@ export interface InteractionEvent extends BaseEvent {
   element?: ElementInfo;
   coordinates?: { x: number; y: number };
   value?: string;
+  value_metadata?: InputMetadata;
   scroll_position?: { x: number; y: number };
   from_url?: string;
   to_url?: string;
@@ -149,12 +153,14 @@ export type Message =
   | { type: "GET_SESSION_STATE" }
   | { type: "GET_SESSION_METRICS" }
   | { type: "SESSION_STATE"; recording: boolean; sessionId: string | null; activeTabId: number | null }
-  | { type: "START_SESSION"; tabId: number; url: string; viewport: Viewport }
+  | { type: "START_SESSION"; tabId: number; url: string; viewport: Viewport; piiMode?: PiiCaptureMode }
   | { type: "STOP_SESSION" }
-  | { type: "SESSION_STARTED"; sessionId: string }
+  | { type: "SESSION_STARTED"; sessionId: string; piiMode: PiiCaptureMode }
   | { type: "SESSION_STOPPED" }
   | { type: "RECORD_EVENT"; event: TimelineEventInput }
   | { type: "TAKE_SCREENSHOT"; trigger: ScreenshotEvent["trigger"] }
   | { type: "EXPORT_SESSION" }
   | { type: "ADD_ANNOTATION"; text: string; element?: ElementInfo; elementScreenshotData?: string }
   | { type: "FOCUS_ANNOTATION" };
+
+export type { PiiCaptureMode, InputMetadata } from "./lib/pii-modes";

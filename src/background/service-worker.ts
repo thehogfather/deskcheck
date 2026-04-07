@@ -10,6 +10,7 @@ import {
   storeScreenshot,
 } from "../lib/session-store";
 import { DebuggerClient } from "../lib/debugger-client";
+import { DEFAULT_PII_MODE, parsePiiMode } from "../lib/pii-modes";
 
 const debuggerClient = new DebuggerClient();
 import { exportSession, getExportFilename } from "../lib/exporter";
@@ -86,6 +87,7 @@ async function handleMessage(
         sessionId: activeSessionId,
         activeTabId,
         hasExportableSession: storedSession != null,
+        piiMode: storedSession?.pii_mode ?? DEFAULT_PII_MODE,
       };
     }
 
@@ -101,7 +103,8 @@ async function handleMessage(
 
     case "START_SESSION": {
       activeTabId = msg.tabId;
-      const session = await createSession(msg.tabId, msg.url, msg.viewport);
+      const piiMode = parsePiiMode(msg.piiMode);
+      const session = await createSession(msg.tabId, msg.url, msg.viewport, piiMode);
       recording = true;
       activeSessionId = session.id;
       setBadge(true);
@@ -133,6 +136,7 @@ async function handleMessage(
           await chrome.tabs.sendMessage(activeTabId, {
             type: "SESSION_STARTED",
             sessionId: session.id,
+            piiMode: session.pii_mode,
           });
         } catch {
           // Content script should pick up via storage.onChanged fallback

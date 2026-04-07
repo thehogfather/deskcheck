@@ -1,8 +1,17 @@
 import { Message } from "../types";
+import { parsePiiMode } from "../lib/pii-modes";
 
 const statusEl = document.getElementById("status") as HTMLParagraphElement;
 const startBtn = document.getElementById("start-btn") as HTMLButtonElement;
 const downloadBtn = document.getElementById("download-btn") as HTMLButtonElement;
+const piiFieldset = document.getElementById("pii-mode-fieldset") as HTMLFieldSetElement;
+
+function selectedPiiMode() {
+  const checked = document.querySelector<HTMLInputElement>(
+    'input[name="pii-mode"]:checked',
+  );
+  return parsePiiMode(checked?.value);
+}
 
 async function sendMessage(msg: Message): Promise<any> {
   return chrome.runtime.sendMessage(msg);
@@ -20,14 +29,17 @@ async function refreshState() {
       statusEl.textContent = "Session active \u2014 use the overlay on the page.";
       startBtn.classList.add("hidden");
       downloadBtn.classList.add("hidden");
+      piiFieldset.classList.add("hidden");
     } else if (state?.hasExportableSession) {
       statusEl.textContent = "";
       startBtn.classList.remove("hidden");
       downloadBtn.classList.remove("hidden");
+      piiFieldset.classList.remove("hidden");
     } else {
       statusEl.textContent = "";
       startBtn.classList.remove("hidden");
       downloadBtn.classList.add("hidden");
+      piiFieldset.classList.remove("hidden");
     }
   } catch {
     // Service worker not ready
@@ -45,6 +57,7 @@ startBtn.addEventListener("click", async () => {
       tabId: tab.id,
       url: tab.url ?? "",
       viewport: { width: tab.width ?? 0, height: tab.height ?? 0 },
+      piiMode: selectedPiiMode(),
     });
     if (response?.warnings?.length) {
       showError(response.warnings.join(" "));
