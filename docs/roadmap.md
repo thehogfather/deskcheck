@@ -125,17 +125,17 @@ status: draft
 - **Impact**: High | **Effort**: Large
 - **Description**: Move the primary DeskCheck UI from the browser action popup into a Chrome side panel (`chrome.sidePanel` API) that fills the full height of the browser window. Clicking the toolbar icon opens the side panel directly — the current popup (with its redundant "Start Session" button) is removed entirely, and the start control is moved into the side panel form. Visually modelled on the Claude Chrome extension's side panel: a scrollable event feed in the upper region, a sticky input/control form pinned to the bottom. The upper region shows a chronological list of captured events — DOM interactions, console errors, network failures, annotations, and screenshots — each with its timestamp. Any event that has an associated image (screenshots, annotation attachments) renders a small thumbnail inline. The lower region contains the existing session form (start/stop, annotation textarea, screenshot button, session metrics). The side panel persists across tab switches within the same window so recording state and the event list remain visible.
 - **Definition of done**:
-  - [ ] Extension registers a side panel via `chrome.sidePanel` and clicking the toolbar action opens the side panel directly (no popup in between)
-  - [ ] Legacy popup HTML/JS is removed from the build (or reduced to a no-op launcher that immediately opens the side panel)
-  - [ ] The "Start Session" control lives in the side panel form, not in a popup
-  - [ ] Side panel fills the full browser height and renders a two-region layout (events above, form below)
-  - [ ] Upper region shows a live, chronological list of all captured events with per-event timestamp and type label
-  - [ ] Events that include a screenshot render a small thumbnail inline in the list
-  - [ ] Event list updates in real time as new events are captured (no manual refresh)
-  - [ ] Lower region contains the existing controls: start/stop, annotation textarea, screenshot, session metrics from feature #1
-  - [ ] Event list scrolls independently of the form region; form stays pinned to the bottom
-  - [ ] Side panel state (open/closed, scroll position) persists across tab switches within the same window
-  - [ ] Visual styling is consistent with the existing widget theme and matches the reference side-panel aesthetic (dark theme, rounded input, compact list rows)
+  - [x] Extension registers a side panel via `chrome.sidePanel` and clicking the toolbar action opens the side panel directly (no popup in between)
+  - [x] Legacy popup HTML/JS is removed from the build (or reduced to a no-op launcher that immediately opens the side panel)
+  - [x] The "Start Session" control lives in the side panel form, not in a popup
+  - [x] Side panel fills the full browser height and renders a two-region layout (events above, form below)
+  - [x] Upper region shows a live, chronological list of all captured events with per-event timestamp and type label
+  - [x] Events that include a screenshot render a small thumbnail inline in the list (placeholder-by-default with click-to-reveal — privacy gate)
+  - [x] Event list updates in real time as new events are captured (no manual refresh)
+  - [x] Lower region contains the existing controls: start/stop, annotation textarea, screenshot, session metrics from feature #1
+  - [x] Event list scrolls independently of the form region; form stays pinned to the bottom
+  - [x] Side panel state (open/closed, scroll position) persists across tab switches within the same window
+  - [x] Visual styling matches the reference side-panel aesthetic (dark theme, rounded inputs, compact list rows). The in-page widget keeps its existing light palette — divergence is intentional and documented in `docs/ARCHITECTURE.md`
 
 ### 9. Automatic tab group for active DeskCheck tabs
 - **Persona**: Bug Reporter
