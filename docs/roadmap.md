@@ -34,7 +34,6 @@ status: draft
   - [x] Widget displays estimated session size in MB
   - [x] Warning appears when estimated size exceeds a configurable threshold (default ~50 MB)
   - [x] Size metric is computed from actual data, not storage quota
-  - [ ] Both duration and size indicators work correctly after feature #5 (incremental persistence) is implemented
 
 ### 2. Sensitive data warnings
 - **Persona**: Bug Reporter
@@ -87,7 +86,7 @@ status: draft
   - [ ] Export reads from OPFS and streams into the zip without loading the full session into memory
   - [ ] Session recording works for 100+ screenshots and 1000+ events without service worker OOM
   - [ ] chrome.storage.local is used only for lightweight session metadata (not events or screenshots)
-  - [ ] Session size indicator (#1) reports correct size from OPFS-backed storage
+  - [ ] Session metrics from feature #1 (duration, event/screenshot counts, size) continue to work correctly with OPFS-backed storage, with size computed from actual OPFS footprint
   - [ ] Existing export schema is preserved (no breaking changes to `session.json`)
 
 ---
