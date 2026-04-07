@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "claims": [
+    {
+      "feature_id": "feature-2",
+      "feature_title": "Sensitive data warnings",
+      "claimed_by": "orch-20260407-203409-26891",
+      "claimed_at": "2026-04-07T19:34:14.514890+00:00",
+      "branch": "feature/sensitive-data-warnings",
+      "status": "active"
+    }
+  ]
+}
