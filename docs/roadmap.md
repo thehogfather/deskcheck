@@ -41,10 +41,10 @@ status: draft
 - **Impact**: High | **Effort**: Small
 - **Description**: Show a one-time notice when recording starts explaining that screenshots capture everything visible on screen. Show a reminder before export that the zip may contain sensitive data and is intended for local use only. Include a brief privacy note in the export zip itself.
 - **Definition of done**:
-  - [ ] First-run notice appears when a session starts (dismissible, shown once per install)
-  - [ ] Pre-export reminder appears in the widget when "Stop & Download" is clicked
-  - [ ] Export zip includes a `PRIVACY.md` noting that screenshots may contain sensitive data
-  - [ ] Notice text explains that DeskCheck captures visible screen content, form inputs, and network headers
+  - [x] First-run notice appears when a session starts (dismissible, shown once per install)
+  - [x] Pre-export reminder appears in the widget when "Stop & Download" is clicked
+  - [x] Export zip includes a `PRIVACY.md` noting that screenshots may contain sensitive data
+  - [x] Notice text explains that DeskCheck captures visible screen content, form inputs, and network headers
 
 ### 3. Schema documentation for AI consumers
 - **Persona**: AI Consumer
@@ -105,6 +105,20 @@ status: draft
   - [ ] Graceful fallback if Web Speech API is unavailable (button hidden or disabled with tooltip)
   - [ ] No audio is stored or transmitted — only the final text is saved as an annotation
 
+### 7. Opt-in tab switching during a session
+- **Persona**: Bug Reporter
+- **Goal**: Let users move an active recording to a different tab without stopping and starting a new session, while keeping "which tab is being recorded" fully explicit and user-controlled
+- **Impact**: Medium | **Effort**: Medium
+- **Description**: A session is currently bound to the tab it started on. `takeScreenshot()` refuses to capture if the recorded tab is not the active tab, which prevents leaking content from an unrelated tab but also means users cannot follow a bug across tabs without ending the session. This feature adds an explicit "Switch recording to this tab" affordance — similar to Chrome's "Share another tab" flow in `getDisplayMedia` — that the user must click to move the recording pointer. Tab changes must be logged to the timeline (new event type or extension to `interaction`) and the export must clearly show which events came from which tab.
+- **Constraints**: Must remain opt-in; no implicit follow. Must preserve the privacy invariant "DeskCheck only captures tabs the user explicitly authorised this session". Debugger attach/detach must move with the recording; CDP client currently attaches to a single tab.
+- **Definition of done**:
+  - [ ] Widget shows a "Switch recording here" button when the user is on a tab that the session is not currently recording
+  - [ ] Clicking the button detaches the debugger from the old tab, attaches it to the new tab, and injects the content script if needed
+  - [ ] A "tab_switch" timeline event records the from-tab and to-tab URLs and timestamp
+  - [ ] `session.json` export includes a per-tab breakdown in the summary
+  - [ ] Screenshots taken after a switch capture the new tab, never the old one
+  - [ ] First-run notice and pre-export reminder copy are updated to mention that users may opt in to move the recording across tabs
+
 ---
 
 ## Parked
@@ -132,11 +146,12 @@ Items cut from scope.
 ```mermaid
 graph LR
     1[1. Session size indicator] --> 5[5. Incremental persistence]
-    2[2. Sensitive data warnings]
+    2[2. Sensitive data warnings] --> 7[7. Opt-in tab switching]
     3[3. Schema docs]
     4[4. PII capture modes]
     6[6. Voice annotations]
 ```
 
 - Feature #5 (Incremental persistence) benefits from #1 (Session size indicator) shipping first — users can see the improvement, and the indicator's calculation needs to be compatible with both storage backends.
+- Feature #7 (Opt-in tab switching) builds on feature #2 — the "recorded tab only" invariant is the precondition that gives tab switching a clear meaning (moving an explicit pointer rather than implicitly following the user).
 - All other features are independent.

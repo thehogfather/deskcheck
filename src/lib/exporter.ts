@@ -5,6 +5,7 @@ import {
   SessionMetadata,
   TimelineEvent,
 } from "../types";
+import { PRIVACY_MD_TEMPLATE } from "./privacy";
 
 export function exportSession(
   session: SessionMetadata,
@@ -25,8 +26,13 @@ export function exportSession(
 
   const jsonStr = JSON.stringify(exportData, null, 2);
 
+  // PRIVACY.md is added BEFORE the screenshots loop so an encoding failure
+  // aborts the export rather than producing a silently-incomplete zip. The
+  // line is intentionally not wrapped in try/catch — a missing privacy notice
+  // is a louder failure mode than a missing screenshot.
   const zipData: Record<string, Uint8Array> = {
     "session.json": strToU8(jsonStr),
+    "PRIVACY.md": strToU8(PRIVACY_MD_TEMPLATE),
   };
 
   for (const [id, dataUrl] of Object.entries(screenshots)) {

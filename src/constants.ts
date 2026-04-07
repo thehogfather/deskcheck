@@ -2,6 +2,7 @@
 export const STORAGE_SESSION = "deskcheck_session";
 export const STORAGE_EVENTS = "deskcheck_events";
 export const STORAGE_SCREENSHOTS = "deskcheck_screenshots";
+export const STORAGE_PRIVACY_FIRST_RUN_SEEN = "deskcheck_privacy_first_run_seen";
 
 // CDP domains to enable
 export const CDP_DOMAINS = ["Network", "Log", "Runtime"] as const;

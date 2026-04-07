@@ -215,6 +215,80 @@
   margin-top: 10px;
 }
 
+/* ── First-run privacy notice ── */
+
+.dc-notice {
+  background: #fef3c7;
+  border-bottom: 1px solid #fde68a;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #78350f;
+  line-height: 1.4;
+}
+
+.dc-notice-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.dc-notice-list {
+  margin: 0 0 8px 0;
+  padding-left: 18px;
+}
+
+.dc-notice-list li {
+  margin-bottom: 4px;
+}
+
+.dc-notice-list li:last-child {
+  margin-bottom: 0;
+}
+
+.dc-notice-dismiss {
+  background: #fff;
+  border-color: #fcd34d;
+  color: #78350f;
+}
+
+.dc-notice-dismiss:hover:not(:disabled) {
+  background: #fef9c3;
+  border-color: #fbbf24;
+}
+
+/* ── Pre-export reminder ── */
+
+.dc-confirm {
+  margin-top: 10px;
+  padding: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #7f1d1d;
+  line-height: 1.4;
+}
+
+.dc-confirm-text {
+  margin-bottom: 8px;
+}
+
+.dc-confirm-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.dc-confirm-actions .dc-btn {
+  flex: 0 0 auto;
+}
+
+.dc-notice-dismiss:focus-visible,
+.dc-confirm-cancel:focus-visible,
+.dc-confirm-download:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
 /* ── Minimized state ── */
 
 .dc-widget.minimized .dc-body {
