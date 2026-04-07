@@ -8,6 +8,14 @@
       "claimed_at": "2026-04-07T19:34:14.514890+00:00",
       "branch": "feature/sensitive-data-warnings",
       "status": "active"
+    },
+    {
+      "feature_id": "feature-4",
+      "feature_title": "PII capture modes",
+      "claimed_by": "orch-20260407-193920-41095",
+      "claimed_at": "2026-04-07T19:39:28.217550+00:00",
+      "branch": "feature/pii-capture-modes",
+      "status": "active"
     }
   ]
 }
