@@ -16,7 +16,8 @@
       "claimed_by": "orch-20260407-193920-41095",
       "claimed_at": "2026-04-07T19:39:28.217550+00:00",
       "branch": "feature/pii-capture-modes",
-      "status": "active"
+      "status": "completed",
+      "released_at": "2026-04-07T20:06:41.643689+00:00"
     },
     {
       "feature_id": "feature-3",
