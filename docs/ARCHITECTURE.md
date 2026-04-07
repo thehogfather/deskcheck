@@ -39,13 +39,14 @@ Chrome extension (Manifest V3) that records debugging sessions for AI-assisted b
 Minimal session-start trigger. Shows "Start Session" when idle, "Download Report" if an unexported session exists. Auto-closes on session start.
 
 ### Shared Libraries (`src/lib/`)
-- **session-store.ts** — chrome.storage.local CRUD for sessions, events, screenshots.
+- **session-store.ts** — chrome.storage.local CRUD for sessions, events, screenshots. `getSession` back-fills `pii_mode` to `"full"` for legacy sessions.
 - **exporter.ts** — Builds zip (fflate) from session data. Strips internal fields (tab_id). Skips corrupted screenshots gracefully. Embeds `agents.md` from `agents-doc.ts` so the export is self-documenting.
 - **agents-doc.ts** — Single source of truth for the export schema version and the `agents.md` reference doc shipped inside every zip. Includes a compile-time exhaustiveness helper (`assertExhaustiveEventTypes`) so adding a new `TimelineEvent` variant fails `make typecheck` until the doc is updated.
 - **debugger-client.ts** — CDP v1.3 client. Subscribes to Network, Log, Runtime domains. Filters extension URLs. Sanitizes sensitive headers (Authorization, Cookie, etc.) before storing.
 - **session-metrics.ts** — Pure functions for session metrics: size estimation, duration/bytes formatting, threshold checking. Polled by widget every 2s via `GET_SESSION_METRICS`.
 - **privacy.ts** — Pure module: single source of truth for the in-widget first-run notice bullets, the pre-export reminder line, and the `PRIVACY.md` template shipped in every export. Imported by both `widget.ts` and `exporter.ts` so the copy cannot drift.
 - **privacy-store.ts** — `chrome.storage.local` wrapper for the first-run notice flag. Read failures default to "not seen" so the notice errs on the side of being shown; write failures are logged but not thrown.
+- **pii-modes.ts** — Pure module for PII capture mode policy. **PRIVACY-CRITICAL**: `capturePayloadForMode` is the only code path that reads `target.value` for input events. Defines the `PiiCaptureMode` (`full` | `metadata` | `none`) and metadata extraction (length, word count, digit/emoji/special-char flags).
 - **dom-utils.ts** — CSS selector generation, element info extraction, throttle utility.
 - **image-utils.ts** — Screenshot cropping for element annotations.
 
@@ -80,17 +81,24 @@ It is added to `zipData` BEFORE the screenshots loop in `exportSession` and is
 intentionally not wrapped in try/catch — a missing privacy notice is a louder
 failure mode than a missing screenshot.
 
+`session.pii_mode` records which PII capture mode the session ran under
+(`full` | `metadata` | `none`). In `metadata` mode, input interaction events
+omit `value` and instead carry `value_metadata` ({length, word_count,
+has_digits, has_emoji, has_special}). In `none` mode, no input events are
+emitted at all.
+
 ## Security
 
 - A session is bound to the **single tab** it started on. DOM events come from the content script injected into that tab, CDP events come from the debugger attached to that tab, and `takeScreenshot()` refuses to capture unless that tab is currently active (`canCaptureRecordedTab`). This prevents a mid-session tab switch from silently leaking content from an unrelated tab into the export.
 - Sensitive headers (Authorization, Cookie, Set-Cookie, Proxy-Authorization, X-Api-Key) are stripped from network error events before storage
 - Widget and element picker use closed Shadow DOM
-- Password fields are masked as `[password]`
+- Password fields are masked as `[password]` in `full` mode; in `metadata` mode only their length/char-class flags are recorded; in `none` mode they are not recorded at all
+- PII capture mode (`full` | `metadata` | `none`) is selected per-session in the popup. `capturePayloadForMode` in `src/lib/pii-modes.ts` is the single chokepoint that decides whether the raw input value reaches the timeline; negative property tests assert raw values never appear in serialized events for non-`full` modes
 - No external network requests; all data stays local
 - Session data cleared from storage after export
 - First-run privacy notice (shown once per install via `chrome.storage.local`) explains that DeskCheck captures the recorded tab's viewport, form inputs, and network headers — not the whole screen, not other tabs
 - Pre-export reminder panel surfaces inside the widget on every Stop & Download click; "Keep recording" cancels with no state changes, "Download" proceeds with the unchanged stop/export flow
-- Every export zip ships a `PRIVACY.md` describing exactly what is (and is not) in the contents
+- Every export zip ships a `PRIVACY.md` describing exactly what is (and is not) in the contents, and an `agents.md` describing the schema for AI consumers
 - Single production dependency (fflate)
 
 ## Conventions
@@ -104,7 +112,7 @@ failure mode than a missing screenshot.
 
 | Version | Changes |
 |---------|---------|
-| schema 1.1.0 | Added `agents.md` self-documenting schema reference inside every export zip (`src/lib/agents-doc.ts`). Compile-time exhaustiveness guard keeps the doc in lockstep with `TimelineEvent`. |
+| schema 1.1.0 | Added `agents.md` self-documenting schema reference inside every export zip (`src/lib/agents-doc.ts`). Compile-time exhaustiveness guard keeps the doc in lockstep with `TimelineEvent`. PII capture modes (feature #4): per-session Full/Metadata/None selector in the popup controls how form inputs are recorded. New pure module `src/lib/pii-modes.ts` is the single chokepoint that reads `target.value`. `SessionMetadata.pii_mode` and `InteractionEvent.value_metadata` added. |
 | (unreleased) | Sensitive data warnings (feature #2): first-run notice in the widget, pre-export reminder panel with explicit Keep-recording cancel, and a `PRIVACY.md` shipped in every export. New `src/lib/privacy.ts` (pure copy + decision helper) and `src/lib/privacy-store.ts` (storage wrapper). Single source of truth for notice copy across the widget and the exporter. Tightened `takeScreenshot()` to refuse capture when the recorded tab is not the currently-active tab (new pure `canCaptureRecordedTab()` gate), so mid-session tab switches cannot leak content from an unrelated tab into the export. |
 | 0.3.0   | Consolidated UI into widget overlay, debounced input recording, security hardening, new icon |
 | 0.2.0   | Initial release as DeskCheck (renamed from Examiner) |

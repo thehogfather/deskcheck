@@ -67,12 +67,12 @@ status: draft
 - **Impact**: High | **Effort**: Medium
 - **Description**: Three input recording modes selectable at session start: **Full** (current behaviour — capture field values, passwords masked), **Metadata** (capture that input occurred, field selector, word count, text length, character class breakdown like emoji/special chars — but not the actual value), **None** (skip input events entirely). Mode is stored in session metadata and noted in the export.
 - **Definition of done**:
-  - [ ] Mode selector appears in popup before session start (Full / Metadata / None)
-  - [ ] "Full" mode behaves identically to current implementation (passwords masked, values truncated to 200 chars)
-  - [ ] "Metadata" mode records: element selector, field type, value length, word count, whether value contains digits/emoji/special characters — but never the raw value
-  - [ ] "None" mode suppresses all input events from the timeline
-  - [ ] Selected mode is recorded in `session.json` metadata
-  - [ ] Default mode is "Full" (no behaviour change for existing users)
+  - [x] Mode selector appears in popup before session start (Full / Metadata / None)
+  - [x] "Full" mode behaves identically to current implementation (passwords masked, values truncated to 200 chars)
+  - [x] "Metadata" mode records: element selector, field type, value length, word count, whether value contains digits/emoji/special characters — but never the raw value
+  - [x] "None" mode suppresses all input events from the timeline
+  - [x] Selected mode is recorded in `session.json` metadata
+  - [x] Default mode is "Full" (no behaviour change for existing users)
 
 ### 5. Incremental persistence (OPFS)
 - **Persona**: Bug Reporter
