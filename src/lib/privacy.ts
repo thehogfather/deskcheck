@@ -5,13 +5,13 @@
 // pure decision helper, fully unit-testable).
 
 export const PRIVACY_NOTICE_BULLETS: readonly string[] = [
-  "Screenshots capture everything visible on screen, including any other tabs, panels, or overlays in view.",
-  "Form inputs are recorded as you type (passwords are masked, but other field values are stored verbatim).",
-  "Network request and response headers are captured (well-known auth headers like Authorization and Cookie are stripped, but custom headers are not).",
+  "Screenshots capture the visible viewport of the browser tab being recorded. Other tabs, other browser windows, the browser chrome itself, and anything outside the page (OS overlays, notifications, other apps) are never captured.",
+  "Form inputs in the recorded tab are stored as you type them (passwords are masked, but other field values — email addresses, search queries, free-text fields — are stored verbatim).",
+  "Network request and response headers for failed requests in the recorded tab are stored. Well-known auth headers like Authorization and Cookie are stripped, but custom headers are not.",
 ] as const;
 
 export const PRIVACY_REMINDER_LINE =
-  "This export may contain screenshots and form inputs that are sensitive. It is intended for local use only — review before sharing.";
+  "This export may contain screenshots and form inputs from the recorded tab that are sensitive. It is intended for local use only — review before sharing.";
 
 export const PRIVACY_MD_TEMPLATE = `# Privacy notice
 
@@ -19,20 +19,29 @@ This DeskCheck session export is intended for **local use only**. Review the
 contents before sharing it with anyone — including AI assistants — because the
 captured data can include information that is sensitive.
 
+## What is recorded
+
+DeskCheck records a **single browser tab** — the one you were on when you
+started the session. It does not record other tabs, other browser windows,
+the browser chrome itself, your desktop, OS notifications, other applications,
+or anything outside that tab's viewport. If you switch to a different tab
+during a session, DeskCheck keeps recording the original tab and will refuse
+to take screenshots until you switch back.
+
 ## What this export may contain
 
-- **Screenshots** of everything that was visible on screen while the session
-  was recording. This can include other browser tabs, notification overlays,
-  personal information visible on the page, and any data displayed by the site
-  being debugged.
-- **Form inputs** that were typed into the page during the session. Password
-  fields are masked, but every other input value is stored verbatim, including
-  email addresses, search queries, and free-text fields.
-- **Network request and response headers** for failed requests. Well-known
-  authentication headers (\`Authorization\`, \`Cookie\`, \`Set-Cookie\`,
-  \`Proxy-Authorization\`, \`X-Api-Key\`) are stripped before storage, but any
-  other custom headers — including bespoke session tokens or tenant
-  identifiers — are kept as captured.
+- **Screenshots** of the visible viewport of the recorded tab. Only the page
+  content inside the tab is captured — nothing from outside the tab is ever
+  included. Even so, the page itself can display sensitive information:
+  account details, payment forms, personal data, internal tooling, etc.
+- **Form inputs** that were typed into the recorded tab during the session.
+  Password fields are masked, but every other input value is stored verbatim,
+  including email addresses, search queries, and free-text fields.
+- **Network request and response headers** for failed requests issued by the
+  recorded tab. Well-known authentication headers (\`Authorization\`,
+  \`Cookie\`, \`Set-Cookie\`, \`Proxy-Authorization\`, \`X-Api-Key\`) are
+  stripped before storage, but any other custom headers — including bespoke
+  session tokens or tenant identifiers — are kept as captured.
 
 ## Recommended workflow
 

@@ -27,7 +27,7 @@ Chrome extension (Manifest V3) that records debugging sessions for AI-assisted b
 
 ### Service Worker (`src/background/`)
 - **service-worker.ts** — Message router, session lifecycle, keyboard shortcuts, export orchestration. Restores state on wake.
-- **screenshot.ts** — `chrome.tabs.captureVisibleTab` wrapper, stores data URLs in chrome.storage.local.
+- **screenshot.ts** — `chrome.tabs.captureVisibleTab` wrapper scoped to the recorded tab. Exports a pure `canCaptureRecordedTab()` gate that refuses capture if the recorded tab is not currently active, so mid-session tab switches cannot leak content from an unrelated tab.
 
 ### Content Script (`src/content/`)
 - **index.ts** — Injection guard, message listener, session state sync with fallbacks (message + storage.onChanged).
@@ -77,14 +77,15 @@ screenshot.
 
 ## Security
 
+- A session is bound to the **single tab** it started on. DOM events come from the content script injected into that tab, CDP events come from the debugger attached to that tab, and `takeScreenshot()` refuses to capture unless that tab is currently active (`canCaptureRecordedTab`). This prevents a mid-session tab switch from silently leaking content from an unrelated tab into the export.
 - Sensitive headers (Authorization, Cookie, Set-Cookie, Proxy-Authorization, X-Api-Key) are stripped from network error events before storage
 - Widget and element picker use closed Shadow DOM
 - Password fields are masked as `[password]`
 - No external network requests; all data stays local
 - Session data cleared from storage after export
-- First-run privacy notice (shown once per install via `chrome.storage.local`) explains that DeskCheck captures visible screen content, form inputs, and network headers
+- First-run privacy notice (shown once per install via `chrome.storage.local`) explains that DeskCheck captures the recorded tab's viewport, form inputs, and network headers — not the whole screen, not other tabs
 - Pre-export reminder panel surfaces inside the widget on every Stop & Download click; "Keep recording" cancels with no state changes, "Download" proceeds with the unchanged stop/export flow
-- Every export zip ships a `PRIVACY.md` describing what may be sensitive in the contents
+- Every export zip ships a `PRIVACY.md` describing exactly what is (and is not) in the contents
 - Single production dependency (fflate)
 
 ## Conventions
@@ -98,6 +99,6 @@ screenshot.
 
 | Version | Changes |
 |---------|---------|
-| (unreleased) | Sensitive data warnings (feature #2): first-run notice in the widget, pre-export reminder panel with explicit Keep-recording cancel, and a `PRIVACY.md` shipped in every export. New `src/lib/privacy.ts` (pure copy + decision helper) and `src/lib/privacy-store.ts` (storage wrapper). Single source of truth for notice copy across the widget and the exporter. |
+| (unreleased) | Sensitive data warnings (feature #2): first-run notice in the widget, pre-export reminder panel with explicit Keep-recording cancel, and a `PRIVACY.md` shipped in every export. New `src/lib/privacy.ts` (pure copy + decision helper) and `src/lib/privacy-store.ts` (storage wrapper). Single source of truth for notice copy across the widget and the exporter. Tightened `takeScreenshot()` to refuse capture when the recorded tab is not the currently-active tab (new pure `canCaptureRecordedTab()` gate), so mid-session tab switches cannot leak content from an unrelated tab into the export. |
 | 0.3.0   | Consolidated UI into widget overlay, debounced input recording, security hardening, new icon |
 | 0.2.0   | Initial release as DeskCheck (renamed from Examiner) |
