@@ -5,6 +5,7 @@ import {
   buildSummary,
   getExportFilename,
 } from "./exporter";
+import { AGENTS_MD, SCHEMA_VERSION } from "./agents-doc";
 import {
   SessionMetadata,
   TimelineEvent,
@@ -121,7 +122,7 @@ describe("exportSession", () => {
     const json = JSON.parse(
       strFromU8(unzipped["session.json"]),
     ) as SessionExport;
-    expect(json.schema_version).toBe("1.0.0");
+    expect(json.schema_version).toBe("1.1.0");
     expect(json.timeline.length).toBe(6);
     expect(json.summary.total_events).toBe(6);
   });
@@ -170,6 +171,77 @@ describe("exportSession privacy notice", () => {
     const text = strFromU8(unzipped["PRIVACY.md"]);
     expect(text).toMatch(/screenshot/i);
     expect(text).toMatch(/sensitive/i);
+  });
+});
+
+describe("agents.md in export", () => {
+  it("includes agents.md alongside session.json", () => {
+    const session = makeSession();
+    const events = makeEvents();
+    const zipBytes = exportSession(session, events, {});
+    const unzipped = unzipSync(zipBytes);
+
+    // Co-presence: the new doc must not displace anything existing.
+    expect(unzipped["session.json"]).toBeDefined();
+    expect(unzipped["agents.md"]).toBeDefined();
+    expect(unzipped["agents.md"].length).toBeGreaterThan(0);
+  });
+
+  it("agents.md content matches the AGENTS_MD constant exactly", () => {
+    const session = makeSession();
+    const zipBytes = exportSession(session, [], {});
+    const unzipped = unzipSync(zipBytes);
+    expect(strFromU8(unzipped["agents.md"])).toBe(AGENTS_MD);
+  });
+
+  it("agents.md schema version matches session.json schema_version (end-to-end drift guard)", () => {
+    const session = makeSession();
+    const zipBytes = exportSession(session, makeEvents(), {});
+    const unzipped = unzipSync(zipBytes);
+
+    const json = JSON.parse(
+      strFromU8(unzipped["session.json"]),
+    ) as SessionExport;
+    const docText = strFromU8(unzipped["agents.md"]);
+
+    expect(json.schema_version).toBe(SCHEMA_VERSION);
+    expect(docText).toContain(json.schema_version);
+  });
+
+  it("produces a valid zip with both files for an empty session (no events, no screenshots)", () => {
+    const session = makeSession();
+    const zipBytes = exportSession(session, [], {});
+    const unzipped = unzipSync(zipBytes);
+
+    expect(unzipped["session.json"]).toBeDefined();
+    expect(unzipped["agents.md"]).toBeDefined();
+    expect(unzipped["session.json"].length).toBeGreaterThan(0);
+    expect(unzipped["agents.md"].length).toBeGreaterThan(0);
+  });
+
+  it("produces both files when events exist but no screenshots", () => {
+    const session = makeSession();
+    const events = makeEvents();
+    const zipBytes = exportSession(session, events, {});
+    const unzipped = unzipSync(zipBytes);
+
+    expect(unzipped["agents.md"]).toBeDefined();
+    expect(
+      Object.keys(unzipped).some((k) => k.startsWith("screenshots/")),
+    ).toBe(false);
+  });
+
+  it("co-presence: session.json + agents.md + screenshots/ all survive when all three categories are present", () => {
+    const session = makeSession();
+    const events = makeEvents();
+    const pngDataUrl =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+    const zipBytes = exportSession(session, events, { ss_1: pngDataUrl });
+    const unzipped = unzipSync(zipBytes);
+
+    expect(unzipped["session.json"]).toBeDefined();
+    expect(unzipped["agents.md"]).toBeDefined();
+    expect(unzipped["screenshots/ss_1.png"]).toBeDefined();
   });
 });
 

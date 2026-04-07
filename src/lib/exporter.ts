@@ -6,6 +6,7 @@ import {
   TimelineEvent,
 } from "../types";
 import { PRIVACY_MD_TEMPLATE } from "./privacy";
+import { AGENTS_MD, SCHEMA_VERSION } from "./agents-doc";
 
 export function exportSession(
   session: SessionMetadata,
@@ -18,7 +19,7 @@ export function exportSession(
   const { tab_id: _, ...sessionExport } = session;
 
   const exportData: SessionExport = {
-    schema_version: "1.0.0",
+    schema_version: SCHEMA_VERSION,
     session: sessionExport as SessionMetadata,
     timeline: events,
     summary,
@@ -33,6 +34,7 @@ export function exportSession(
   const zipData: Record<string, Uint8Array> = {
     "session.json": strToU8(jsonStr),
     "PRIVACY.md": strToU8(PRIVACY_MD_TEMPLATE),
+    "agents.md": strToU8(AGENTS_MD),
   };
 
   for (const [id, dataUrl] of Object.entries(screenshots)) {

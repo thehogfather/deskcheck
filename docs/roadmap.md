@@ -52,10 +52,10 @@ status: draft
 - **Impact**: Medium | **Effort**: Small
 - **Description**: Include a lightweight `agents.md` file in every exported zip that describes the `session.json` schema — event types, field meanings, timeline structure, and how to interpret screenshots. This makes the export self-documenting.
 - **Definition of done**:
-  - [ ] Every exported zip contains `agents.md` alongside `session.json`
-  - [ ] `agents.md` describes the schema version, session metadata fields, and each event type with field definitions
-  - [ ] `agents.md` explains the relationship between timeline entries and `screenshots/` directory
-  - [ ] An AI assistant given only the zip can produce a structured bug report without additional context
+  - [x] Every exported zip contains `agents.md` alongside `session.json`
+  - [x] `agents.md` describes the schema version, session metadata fields, and each event type with field definitions
+  - [x] `agents.md` explains the relationship between timeline entries and `screenshots/` directory
+  - [x] An AI assistant given only the zip can produce a structured bug report without additional context (verified manually — see PR description)
 
 ---
 

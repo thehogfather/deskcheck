@@ -40,7 +40,8 @@ Minimal session-start trigger. Shows "Start Session" when idle, "Download Report
 
 ### Shared Libraries (`src/lib/`)
 - **session-store.ts** — chrome.storage.local CRUD for sessions, events, screenshots.
-- **exporter.ts** — Builds zip (fflate) from session data. Strips internal fields (tab_id). Skips corrupted screenshots gracefully.
+- **exporter.ts** — Builds zip (fflate) from session data. Strips internal fields (tab_id). Skips corrupted screenshots gracefully. Embeds `agents.md` from `agents-doc.ts` so the export is self-documenting.
+- **agents-doc.ts** — Single source of truth for the export schema version and the `agents.md` reference doc shipped inside every zip. Includes a compile-time exhaustiveness helper (`assertExhaustiveEventTypes`) so adding a new `TimelineEvent` variant fails `make typecheck` until the doc is updated.
 - **debugger-client.ts** — CDP v1.3 client. Subscribes to Network, Log, Runtime domains. Filters extension URLs. Sanitizes sensitive headers (Authorization, Cookie, etc.) before storing.
 - **session-metrics.ts** — Pure functions for session metrics: size estimation, duration/bytes formatting, threshold checking. Polled by widget every 2s via `GET_SESSION_METRICS`.
 - **privacy.ts** — Pure module: single source of truth for the in-widget first-run notice bullets, the pre-export reminder line, and the `PRIVACY.md` template shipped in every export. Imported by both `widget.ts` and `exporter.ts` so the copy cannot drift.
@@ -60,20 +61,24 @@ Discriminated union for timeline events: interaction, viewport_resize, network_e
 5. CDP events (network errors, console, exceptions) flow directly from debugger client → storage
 6. User clicks "Stop & Download" in widget → service worker ends session, builds zip, triggers download, clears storage
 
-## Export Schema (v1.0.0)
+## Export Schema (v1.1.0)
 
 ```
 deskcheck-session-{timestamp}.zip
 ├── session.json    # { schema_version, session, timeline[], summary }
+├── agents.md       # self-documenting schema reference for AI consumers
 ├── PRIVACY.md      # Privacy notice — sibling artifact, not part of session.json
 └── screenshots/    # PNGs referenced by timeline events
 ```
 
-`PRIVACY.md` is a sibling artifact in the zip, not a field of `session.json`,
-so the schema version is unchanged. It is added to `zipData` BEFORE the
-screenshots loop in `exportSession` and is intentionally not wrapped in
-try/catch — a missing privacy notice is a louder failure mode than a missing
-screenshot.
+`schema_version` follows semver and tracks the *whole zip layout*, not
+just `session.json`. The single source of truth lives in `src/lib/agents-doc.ts`
+as `SCHEMA_VERSION` and is consumed by `exporter.ts`.
+
+`PRIVACY.md` is a sibling artifact in the zip, not a field of `session.json`.
+It is added to `zipData` BEFORE the screenshots loop in `exportSession` and is
+intentionally not wrapped in try/catch — a missing privacy notice is a louder
+failure mode than a missing screenshot.
 
 ## Security
 
@@ -99,6 +104,7 @@ screenshot.
 
 | Version | Changes |
 |---------|---------|
+| schema 1.1.0 | Added `agents.md` self-documenting schema reference inside every export zip (`src/lib/agents-doc.ts`). Compile-time exhaustiveness guard keeps the doc in lockstep with `TimelineEvent`. |
 | (unreleased) | Sensitive data warnings (feature #2): first-run notice in the widget, pre-export reminder panel with explicit Keep-recording cancel, and a `PRIVACY.md` shipped in every export. New `src/lib/privacy.ts` (pure copy + decision helper) and `src/lib/privacy-store.ts` (storage wrapper). Single source of truth for notice copy across the widget and the exporter. Tightened `takeScreenshot()` to refuse capture when the recorded tab is not the currently-active tab (new pure `canCaptureRecordedTab()` gate), so mid-session tab switches cannot leak content from an unrelated tab into the export. |
 | 0.3.0   | Consolidated UI into widget overlay, debounced input recording, security hardening, new icon |
 | 0.2.0   | Initial release as DeskCheck (renamed from Examiner) |
