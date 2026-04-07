@@ -96,13 +96,13 @@ status: draft
 - **Description**: Replace the current chrome.storage.local accumulation model with streaming writes to the Origin Private File System (OPFS). Events are appended to a file as they arrive. Screenshots are written as individual PNGs rather than held as base64 strings in memory. On export, files are zipped directly from OPFS without loading everything into memory. This removes the OOM risk during both recording and export.
 - **Dependencies**: Feature #1 (session size indicator) should ship first so users can see the improvement. The indicator's size calculation must be updated to work with OPFS-backed storage.
 - **Definition of done**:
-  - [ ] Events are appended to an OPFS file incrementally, not accumulated in a chrome.storage.local array
-  - [ ] Screenshots are written as individual PNG files to OPFS, not stored as base64 data URLs
-  - [ ] Export reads from OPFS and streams into the zip without loading the full session into memory
-  - [ ] Session recording works for 100+ screenshots and 1000+ events without service worker OOM
-  - [ ] chrome.storage.local is used only for lightweight session metadata (not events or screenshots)
-  - [ ] Session metrics from feature #1 (duration, event/screenshot counts, size) continue to work correctly with OPFS-backed storage, with size computed from actual OPFS footprint
-  - [ ] Existing export schema is preserved (no breaking changes to `session.json`)
+  - [x] Events are appended to an OPFS file incrementally, not accumulated in a chrome.storage.local array
+  - [x] Screenshots are written as individual PNG files to OPFS, not stored as base64 data URLs
+  - [x] Export reads from OPFS and streams into the zip without loading the full session into memory
+  - [x] Session recording works for 100+ screenshots and 1000+ events without service worker OOM
+  - [x] chrome.storage.local is used only for lightweight session metadata (not events or screenshots)
+  - [x] Session metrics from feature #1 (duration, event/screenshot counts, size) continue to work correctly with OPFS-backed storage, with size computed from actual OPFS footprint
+  - [x] Existing export schema is preserved (no breaking changes to `session.json`)
 
 ---
 
