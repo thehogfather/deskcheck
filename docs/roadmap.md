@@ -57,6 +57,21 @@ status: draft
   - [x] `agents.md` explains the relationship between timeline entries and `screenshots/` directory
   - [x] An AI assistant given only the zip can produce a structured bug report without additional context (verified manually — see PR description)
 
+### 11. Interaction feedback and auto-scroll in side panel
+- **Persona**: Bug Reporter
+- **Goal**: Make async actions feel responsive and keep the event list focused on the most recent activity during an active session
+- **Impact**: Medium | **Effort**: Small
+- **Description**: Form controls currently fire async work (saving an annotation, capturing a screenshot, stopping & exporting) without surfacing any in-flight feedback, which can make the UI feel unresponsive or tempt users to double-click. Buttons should enter a loading state (disabled, spinner or a label like "Saving…" / "Capturing…") while their handler is running, then return to idle on success or error. In parallel, the live event list should auto-scroll to the bottom when a new event is appended so the most recent activity is always visible. Auto-scroll should respect user intent — if the user has scrolled up to inspect earlier events, new appends should not yank them back; a subtle "new events" affordance can let them return manually. The loading-state work can land against the current popup/widget controls immediately; the auto-scroll work lands against the side panel event list from feature #8.
+- **Dependencies**: Auto-scroll portion depends on feature #8 (Side panel UX) since the event list lives there. Loading-state portion has no dependencies and can ship first.
+- **Definition of done**:
+  - [ ] "Save annotation" button shows a loading state (disabled + label/spinner) while the save is in flight
+  - [ ] "Capture screenshot" button shows a loading state while the capture is in flight
+  - [ ] Any other async form control (e.g. Stop & Download) follows the same loading pattern
+  - [ ] Buttons return to idle on success or error, with errors remaining visible to the user
+  - [ ] Event list auto-scrolls to the bottom when a new event is appended and the user is already pinned to the bottom
+  - [ ] If the user has scrolled up, new appends do not force-scroll — a subtle "new events" indicator lets them jump back manually
+  - [ ] Loading state transitions and scroll-anchoring logic are unit-tested where possible
+
 ---
 
 ## Priority: Next
@@ -204,11 +219,13 @@ graph LR
     4[4. PII capture modes]
     6[6. Voice annotations]
     8[8. Side panel UX] --> 10[10. Lifecycle controls]
+    8 --> 11[11. Interaction feedback & auto-scroll]
     9[9. Active tab group]
 ```
 
 - Feature #5 (Incremental persistence) benefits from #1 (Session size indicator) shipping first — users can see the improvement, and the indicator's calculation needs to be compatible with both storage backends.
 - Feature #7 (Opt-in tab switching) builds on feature #2 — the "recorded tab only" invariant is the precondition that gives tab switching a clear meaning (moving an explicit pointer rather than implicitly following the user).
 - Feature #10 (Lifecycle controls) depends on #8 (Side panel UX) — the pause/resume/stop/discard controls live in the side panel form and the discard confirmation needs the event list to describe what will be deleted.
+- Feature #11 (Interaction feedback & auto-scroll) depends on #8 (Side panel UX) — it polishes the event list and form controls introduced there.
 - Features #8 (Side panel UX) and #9 (Active tab group) are complementary "active session visibility" cues but can ship independently.
 - All other features are independent.
