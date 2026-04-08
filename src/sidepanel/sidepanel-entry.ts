@@ -65,6 +65,7 @@ async function main() {
       return tabs[0];
     },
     onRuntimeMessage: chrome.runtime.onMessage as unknown as SidePanelDeps["onRuntimeMessage"],
+    readStorage: (keys: string[]) => chrome.storage.local.get(keys),
   };
 
   await mountSidePanel(deps);

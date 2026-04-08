@@ -75,34 +75,34 @@ status: draft
 - **Dependencies**: Feature #8 (Side panel UX) — all five pieces live in the side panel form and event list. #8 is merged, so this feature is fully unblocked.
 - **Definition of done**:
   - **Gated controls (hide, not disable):**
-    - [ ] Pre-session, the side panel form renders only Start, the PII mode selector, and (conditionally) Reset — the annotation textarea, screenshot button, element-picker trigger, and lifecycle controls are absent from the DOM, not merely disabled
-    - [ ] Pre-session, a short empty-state ("Start a session to begin capturing" or equivalent) takes the place of the hidden control block so the panel does not look broken
-    - [ ] On session start, the interaction controls (annotation, screenshot, element picker) and lifecycle controls (Pause, Resume, Stop, Discard) appear
-    - [ ] On session stop (or after Discard), the form returns to its pre-session state with the interaction and lifecycle controls hidden
+    - [x] Pre-session, the side panel form renders only Start, the PII mode selector, and (conditionally) Reset — the annotation textarea, screenshot button, element-picker trigger, and lifecycle controls are absent from the DOM, not merely disabled
+    - [x] Pre-session, a short empty-state ("Start a session to begin capturing" or equivalent) takes the place of the hidden control block so the panel does not look broken
+    - [x] On session start, the interaction controls (annotation, screenshot, element picker) and lifecycle controls (Pause, Resume, Stop, Discard) appear
+    - [x] On session stop (or after Discard), the form returns to its pre-session state with the interaction and lifecycle controls hidden
   - **Loading feedback:**
-    - [ ] "Save annotation" shows a loading state (disabled + label/spinner) while the save is in flight
-    - [ ] "Capture screenshot" shows a loading state while the capture is in flight
-    - [ ] "Stop & Download" shows a loading state while the export is in flight
-    - [ ] Loading buttons return to idle on success or error; errors remain visible to the user
+    - [x] "Save annotation" shows a loading state (disabled + label/spinner) while the save is in flight
+    - [x] "Capture screenshot" shows a loading state while the capture is in flight
+    - [x] "Stop & Download" shows a loading state while the export is in flight
+    - [x] Loading buttons return to idle on success or error; errors remain visible to the user
   - **Auto-scroll:**
-    - [ ] Event list auto-scrolls to the bottom when a new event is appended and the user is pinned to the bottom
-    - [ ] If the user has scrolled up, new appends do not force-scroll — a subtle "new events" indicator lets them jump back manually
+    - [x] Event list auto-scrolls to the bottom when a new event is appended and the user is pinned to the bottom
+    - [x] If the user has scrolled up, new appends do not force-scroll — a subtle "new events" indicator lets them jump back manually
   - **Lifecycle controls:**
-    - [ ] Side panel exposes four lifecycle controls during an active session: Pause, Resume, Stop, Discard
-    - [ ] Pause stops capturing new interactions, console, network, and screenshot events but preserves the existing session and event list
-    - [ ] Resume re-enables capture without creating a new session or losing the prior timeline
-    - [ ] Pause/Resume transitions are recorded as timeline markers in `session.json` (e.g., `{type: "session_paused", timestamp: ...}`) so gaps are explicit
-    - [ ] Stop behaves as today's "Stop & Download" — finalises the session and triggers export
-    - [ ] Discard shows a confirmation dialog naming the concrete data at risk ("Delete N events and M screenshots? This cannot be undone.") and requires explicit confirmation
-    - [ ] After confirmed discard, all events, screenshots, and session metadata for the current session are removed from storage (chrome.storage.local and/or OPFS depending on feature #5 status)
-    - [ ] Cancelling the discard confirmation leaves the session untouched
-    - [ ] Session metadata includes a `status` field reflecting `running` / `paused` / `stopped` for consumers of the export
+    - [x] Side panel exposes four lifecycle controls during an active session: Pause, Resume, Stop, Discard
+    - [x] Pause stops capturing new interactions, console, network, and screenshot events but preserves the existing session and event list
+    - [x] Resume re-enables capture without creating a new session or losing the prior timeline
+    - [x] Pause/Resume transitions are recorded as timeline markers in `session.json` (e.g., `{type: "session_paused", timestamp: ...}`) so gaps are explicit
+    - [x] Stop behaves as today's "Stop & Download" — finalises the session and triggers export
+    - [x] Discard shows a confirmation dialog naming the concrete data at risk ("Delete N events and M screenshots? This cannot be undone.") and requires explicit confirmation
+    - [x] After confirmed discard, all events, screenshots, and session metadata for the current session are removed from storage (chrome.storage.local and/or OPFS depending on feature #5 status)
+    - [x] Cancelling the discard confirmation leaves the session untouched
+    - [x] Session metadata includes a `status` field reflecting `running` / `paused` / `stopped` for consumers of the export
   - **Reset:**
-    - [ ] A Reset button is rendered in the side panel only when no session is active and residual state (events, metrics, or lingering session metadata) remains to clear
-    - [ ] Clicking Reset clears the residual state and returns the panel to its idle pre-session state — no confirmation dialog
-    - [ ] Reset is not rendered while a session is active (mid-session clearing is Discard)
+    - [x] A Reset button is rendered in the side panel only when no session is active and residual state (events, metrics, or lingering session metadata) remains to clear
+    - [x] Clicking Reset clears the residual state and returns the panel to its idle pre-session state — no confirmation dialog
+    - [x] Reset is not rendered while a session is active (mid-session clearing is Discard)
   - **Tests:**
-    - [ ] Gated visibility, loading state transitions, scroll-anchoring logic, lifecycle state machine (pause/resume), discard storage cleanup, confirmation cancel path, and reset behaviour are unit-tested where possible
+    - [x] Gated visibility, loading state transitions, scroll-anchoring logic, lifecycle state machine (pause/resume), discard storage cleanup, confirmation cancel path, and reset behaviour are unit-tested where possible
 
 ---
 

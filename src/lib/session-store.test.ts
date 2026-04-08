@@ -1,356 +1,238 @@
-// Acceptance test for feature #8 — Test Level Matrix row #13.
-//
-// Pins the append-only contract on session-store.appendEvent. The side
-// panel's storage.onChanged subscription depends on this invariant: it
-// computes deltas as `newValue.slice(lastSeenLength)`. If a future
-// change (e.g. feature #5 incremental persistence) silently rewrites
-// the events array prefix, the side panel will miss updates.
-//
-// This test should PASS against the current implementation. It is a
-// regression pin, not a failing acceptance test for new behaviour.
+import { describe, it, expect, beforeEach } from "vitest";
+import type { SessionStore } from "./session-store-types";
+import { FakeSessionStore } from "./fake-session-store";
+import { OpfsSessionStore } from "./opfs-session-store";
+import {
+  createFakeOpfsRoot,
+  createFakeChromeStorage,
+} from "./__fixtures__/fake-opfs";
+import type { SessionMetadata, TimelineEventInput } from "../types";
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+// Contract suite for the SessionStore interface. Runs against both
+// FakeSessionStore (the executable spec) and OpfsSessionStore (the
+// production path) so any divergence fails loudly. See
+// docs/plans/feature-5/selected-plan.md — "SessionStore" section.
 
-// Minimal in-memory chrome.storage.local fake. The `removeCalls`
-// array records every remove invocation for spy-style assertions
-// (used by the feature-11 atomic-discard test).
-interface FakeChromeState {
-  storage: Record<string, unknown>;
-  removeCalls: Array<string | string[]>;
-  setCalls: number;
+type StoreFactory = () => SessionStore;
+
+function makeMetadata(overrides: Partial<SessionMetadata> = {}): SessionMetadata {
+  return {
+    id: "test-session",
+    tab_id: 1,
+    start_time: "2026-04-07T12:00:00.000Z",
+    end_time: null,
+    duration_ms: null,
+    initial_url: "https://example.com",
+    user_agent: "TestAgent/1.0",
+    viewport: { width: 1280, height: 720 },
+    pii_mode: "full",
+    status: "running",
+    ...overrides,
+  };
 }
 
-function installFakeChromeStorage(): FakeChromeState {
-  const state: FakeChromeState = {
-    storage: {},
-    removeCalls: [],
-    setCalls: 0,
+function clickEvent(subtype = "click"): TimelineEventInput {
+  return {
+    timestamp: "2026-04-07T12:00:01.000Z",
+    type: "interaction",
+    subtype: subtype as "click",
+    element: { tag: "button", selector: "#btn" },
+    coordinates: { x: 10, y: 20 },
+    page_url: "https://example.com",
   };
-  const fake = {
-    storage: {
-      local: {
-        async get(keys: string | string[] | Record<string, unknown>) {
-          const list = typeof keys === "string" ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys);
-          const out: Record<string, unknown> = {};
-          for (const k of list) {
-            if (k in state.storage) out[k] = state.storage[k];
-          }
-          return out;
-        },
-        async set(items: Record<string, unknown>) {
-          state.setCalls += 1;
-          Object.assign(state.storage, items);
-        },
-        async remove(keys: string | string[]) {
-          state.removeCalls.push(keys);
-          const list = typeof keys === "string" ? [keys] : keys;
-          for (const k of list) delete state.storage[k];
-        },
-      },
-    },
-  };
-  // @ts-expect-error — install on globalThis for the module under test.
-  globalThis.chrome = fake;
-  return state;
 }
 
-describe("session-store.appendEvent append-only contract (matrix #13)", () => {
-  let state: FakeChromeState;
+const tinyPng = (): Uint8Array =>
+  new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // PNG magic
+    0x00, 0x00, 0x00, 0x0d, // IHDR length
+  ]);
 
-  beforeEach(async () => {
-    state = installFakeChromeStorage();
-    vi.resetModules();
-  });
+function runContractSuite(label: string, factory: StoreFactory) {
+  describe(`SessionStore contract — ${label}`, () => {
+    let store: SessionStore;
 
-  it("preserves the prefix: newEvents.slice(0, oldLen) deep-equals oldEvents", async () => {
-    const { createSession, appendEvent, getEvents } = await import("./session-store");
-    await createSession(1, "https://example.com/", { width: 1, height: 1 });
-
-    await appendEvent({
-      timestamp: "2026-04-07T12:00:00.000Z",
-      type: "console_error",
-      level: "error",
-      message: "first",
-      page_url: "https://example.com/",
+    beforeEach(() => {
+      store = factory();
     });
-    const after1 = await getEvents();
 
-    await appendEvent({
-      timestamp: "2026-04-07T12:00:01.000Z",
-      type: "console_error",
-      level: "error",
-      message: "second",
-      page_url: "https://example.com/",
-    });
-    const after2 = await getEvents();
-
-    await appendEvent({
-      timestamp: "2026-04-07T12:00:02.000Z",
-      type: "console_error",
-      level: "error",
-      message: "third",
-      page_url: "https://example.com/",
-    });
-    const after3 = await getEvents();
-
-    // Prefix preservation: each successive snapshot must contain every
-    // earlier snapshot as its prefix.
-    expect(after2.slice(0, after1.length)).toEqual(after1);
-    expect(after3.slice(0, after2.length)).toEqual(after2);
-    expect(after3).toHaveLength(3);
-  });
-
-  it("assigns monotonically increasing seq numbers", async () => {
-    const { createSession, appendEvent, getEvents } = await import("./session-store");
-    await createSession(1, "https://example.com/", { width: 1, height: 1 });
-
-    for (let i = 0; i < 5; i++) {
-      await appendEvent({
-        timestamp: `2026-04-07T12:00:0${i}.000Z`,
-        type: "console_error",
-        level: "error",
-        message: `m${i}`,
-        page_url: "https://example.com/",
+    describe("createSession / getSession", () => {
+      it("persists the initial metadata and returns it from getSession", async () => {
+        const meta = makeMetadata();
+        await store.createSession(meta);
+        const loaded = await store.getSession();
+        expect(loaded?.id).toBe(meta.id);
+        expect(loaded?.pii_mode).toBe("full");
       });
-    }
-    const events = await getEvents();
-    const seqs = events.map((e) => e.seq);
-    for (let i = 1; i < seqs.length; i++) {
-      expect(seqs[i]).toBeGreaterThan(seqs[i - 1]);
-    }
-  });
 
-  // Suppress unused warning for `state`.
-  it("uses chrome.storage.local under the hood", () => {
-    expect(typeof state).toBe("object");
-  });
-});
+      it("wipes prior session state on createSession (no bleed between sessions)", async () => {
+        await store.createSession(makeMetadata({ id: "sess-a" }));
+        await store.appendEvent(clickEvent());
+        await store.appendScreenshot("ss1", tinyPng());
 
-// ─────────────────────────────────────────────────────────────────────
-// Feature #11 — lifecycle facade (pause, resume, discard, reset)
-// ─────────────────────────────────────────────────────────────────────
-
-describe("session-store.createSession writes status:'running'", () => {
-  let state: FakeChromeState;
-  beforeEach(async () => {
-    state = installFakeChromeStorage();
-    vi.resetModules();
-  });
-
-  it("new sessions have status 'running' in storage", async () => {
-    const { createSession, getSession } = await import("./session-store");
-    await createSession(1, "https://example.com/", { width: 1, height: 1 });
-    const session = await getSession();
-    expect(session).not.toBeNull();
-    expect(session!.status).toBe("running");
-    // Suppress unused warning for state.
-    expect(state.setCalls).toBeGreaterThan(0);
-  });
-});
-
-describe("session-store.endSession writes status:'stopped'", () => {
-  beforeEach(async () => {
-    installFakeChromeStorage();
-    vi.resetModules();
-  });
-
-  it("sets status to 'stopped' alongside end_time and duration_ms", async () => {
-    const { createSession, endSession, getSession } = await import("./session-store");
-    await createSession(1, "https://example.com/", { width: 1, height: 1 });
-    await endSession();
-    const session = await getSession();
-    expect(session).not.toBeNull();
-    expect(session!.status).toBe("stopped");
-    expect(session!.end_time).not.toBeNull();
-    expect(session!.duration_ms).not.toBeNull();
-  });
-});
-
-describe("session-store.pauseSession", () => {
-  beforeEach(async () => {
-    installFakeChromeStorage();
-    vi.resetModules();
-  });
-
-  it("writes the session_paused marker BEFORE flipping status to 'paused'", async () => {
-    const { createSession, pauseSession, getEvents, getSession } = await import("./session-store");
-    await createSession(1, "https://example.com/", { width: 1, height: 1 });
-
-    // Sanity: starts as running, no marker present.
-    expect((await getSession())!.status).toBe("running");
-    expect((await getEvents()).length).toBe(0);
-
-    await pauseSession();
-
-    // Both the marker and the status flip landed.
-    const events = await getEvents();
-    const session = await getSession();
-    expect(events.length).toBe(1);
-    expect(events[0].type).toBe("session_paused");
-    expect(session!.status).toBe("paused");
-  });
-
-  it("is a no-op when the session is already paused", async () => {
-    const { createSession, pauseSession, getEvents } = await import("./session-store");
-    await createSession(1, "https://example.com/", { width: 1, height: 1 });
-    await pauseSession();
-    await pauseSession(); // second call should be idempotent
-    const events = await getEvents();
-    expect(events.filter((e) => e.type === "session_paused").length).toBe(1);
-  });
-
-  it("returns null when no session exists", async () => {
-    const { pauseSession } = await import("./session-store");
-    const result = await pauseSession();
-    expect(result).toBeNull();
-  });
-});
-
-describe("session-store.resumeSession", () => {
-  beforeEach(async () => {
-    installFakeChromeStorage();
-    vi.resetModules();
-  });
-
-  it("writes the session_resumed marker and flips status back to 'running'", async () => {
-    const { createSession, pauseSession, resumeSession, getEvents, getSession } = await import("./session-store");
-    await createSession(1, "https://example.com/", { width: 1, height: 1 });
-    await pauseSession();
-    await resumeSession();
-    const events = await getEvents();
-    const session = await getSession();
-    expect(events.length).toBe(2);
-    expect(events[0].type).toBe("session_paused");
-    expect(events[1].type).toBe("session_resumed");
-    expect(session!.status).toBe("running");
-  });
-
-  it("is a no-op when the session is already running", async () => {
-    const { createSession, resumeSession, getEvents } = await import("./session-store");
-    await createSession(1, "https://example.com/", { width: 1, height: 1 });
-    const result = await resumeSession();
-    expect(result).toBeNull();
-    expect((await getEvents()).length).toBe(0);
-  });
-});
-
-describe("session-store.discardSession — atomic remove", () => {
-  let state: FakeChromeState;
-  beforeEach(async () => {
-    state = installFakeChromeStorage();
-    vi.resetModules();
-  });
-
-  it("removes session, events, and screenshots in a single remove([...]) call", async () => {
-    const { createSession, appendEvent, storeScreenshot, discardSession, getSession, getEvents, getScreenshots } =
-      await import("./session-store");
-    await createSession(1, "https://example.com/", { width: 1, height: 1 });
-    await appendEvent({
-      timestamp: "2026-04-07T12:00:00.000Z",
-      type: "console_error",
-      level: "error",
-      message: "m",
-      page_url: "https://example.com/",
+        await store.createSession(makeMetadata({ id: "sess-b" }));
+        expect(await store.countEvents()).toBe(0);
+        expect(await store.countScreenshots()).toBe(0);
+      });
     });
-    await storeScreenshot("ss_1", "data:image/png;base64,STUB");
 
-    const removeCallsBefore = state.removeCalls.length;
+    describe("appendEvent / readEvents", () => {
+      beforeEach(async () => {
+        await store.createSession(makeMetadata());
+      });
 
-    await discardSession();
+      it("assigns seq monotonically starting at 1", async () => {
+        const a = await store.appendEvent(clickEvent());
+        const b = await store.appendEvent(clickEvent("input"));
+        const c = await store.appendEvent(clickEvent("scroll"));
+        expect(a.seq).toBe(1);
+        expect(b.seq).toBe(2);
+        expect(c.seq).toBe(3);
+      });
 
-    // Exactly one remove() call after the setup.
-    expect(state.removeCalls.length - removeCallsBefore).toBe(1);
-    const lastCall = state.removeCalls[state.removeCalls.length - 1];
-    expect(Array.isArray(lastCall)).toBe(true);
-    // All three keys were passed in the same call.
-    expect(lastCall).toEqual(
-      expect.arrayContaining([
-        "deskcheck_session",
-        "deskcheck_events",
-        "deskcheck_screenshots",
-      ]),
-    );
+      it("round-trips events via readEvents in append order", async () => {
+        await store.appendEvent(clickEvent("click"));
+        await store.appendEvent(clickEvent("input"));
+        const out = [];
+        for await (const ev of store.readEvents()) out.push(ev);
+        expect(out.map((e) => e.seq)).toEqual([1, 2]);
+        expect(out.map((e) => e.type === "interaction" && e.subtype)).toEqual([
+          "click",
+          "input",
+        ]);
+      });
 
-    // And the state reflects a total wipe.
-    expect(await getSession()).toBeNull();
-    expect(await getEvents()).toEqual([]);
-    expect(await getScreenshots()).toEqual({});
-  });
-});
+      it("countEvents matches the number of appends", async () => {
+        expect(await store.countEvents()).toBe(0);
+        await store.appendEvent(clickEvent());
+        await store.appendEvent(clickEvent());
+        await store.appendEvent(clickEvent());
+        expect(await store.countEvents()).toBe(3);
+      });
 
-describe("session-store.clearResidual — same atomic contract", () => {
-  let state: FakeChromeState;
-  beforeEach(async () => {
-    state = installFakeChromeStorage();
-    vi.resetModules();
-  });
+      it("readEventsArray returns every appended event", async () => {
+        await store.appendEvent(clickEvent());
+        await store.appendEvent(clickEvent("input"));
+        const arr = await store.readEventsArray();
+        expect(arr.length).toBe(2);
+        expect(arr[0].seq).toBe(1);
+        expect(arr[1].seq).toBe(2);
+      });
 
-  it("removes all three keys in a single remove call", async () => {
-    const { createSession, endSession, clearResidual } = await import("./session-store");
-    await createSession(1, "https://example.com/", { width: 1, height: 1 });
-    await endSession();
-
-    const before = state.removeCalls.length;
-    await clearResidual();
-    expect(state.removeCalls.length - before).toBe(1);
-    const lastCall = state.removeCalls[state.removeCalls.length - 1];
-    expect(Array.isArray(lastCall)).toBe(true);
-    expect(lastCall).toEqual(
-      expect.arrayContaining([
-        "deskcheck_session",
-        "deskcheck_events",
-        "deskcheck_screenshots",
-      ]),
-    );
-  });
-});
-
-describe("session-store.getSession — legacy compat for missing status", () => {
-  beforeEach(async () => {
-    installFakeChromeStorage();
-    vi.resetModules();
-  });
-
-  it("defaults status to 'running' when legacy session has no end_time and no status", async () => {
-    // Simulate a pre-1.2.0 session in storage: no status field.
-    // Reach into the fake directly via the already-installed chrome shim.
-    await (globalThis as unknown as { chrome: { storage: { local: { set: (x: Record<string, unknown>) => Promise<void> } } } }).chrome.storage.local.set({
-      deskcheck_session: {
-        id: "legacy-1",
-        tab_id: 1,
-        start_time: "2026-01-01T00:00:00.000Z",
-        end_time: null,
-        duration_ms: null,
-        initial_url: "https://example.com",
-        user_agent: "legacy",
-        viewport: { width: 1, height: 1 },
-        pii_mode: "full",
-      },
+      it("serialises concurrent appendEvent calls into a strictly monotonic seq", async () => {
+        const N = 25;
+        const pending = Array.from({ length: N }, () =>
+          store.appendEvent(clickEvent()),
+        );
+        const results = await Promise.all(pending);
+        const seqs = results.map((r) => r.seq).sort((a, b) => a - b);
+        expect(seqs).toEqual(
+          Array.from({ length: N }, (_, i) => i + 1),
+        );
+        // Readback must preserve the same set and ordering by seq.
+        const readback = await store.readEventsArray();
+        expect(readback.length).toBe(N);
+        expect(readback.map((e) => e.seq)).toEqual(
+          Array.from({ length: N }, (_, i) => i + 1),
+        );
+      });
     });
-    const { getSession } = await import("./session-store");
-    const session = await getSession();
-    expect(session).not.toBeNull();
-    expect(session!.status).toBe("running");
-  });
 
-  it("defaults status to 'stopped' when legacy session has end_time but no status", async () => {
-    // Reach into the fake directly via the already-installed chrome shim.
-    await (globalThis as unknown as { chrome: { storage: { local: { set: (x: Record<string, unknown>) => Promise<void> } } } }).chrome.storage.local.set({
-      deskcheck_session: {
-        id: "legacy-2",
-        tab_id: 1,
-        start_time: "2026-01-01T00:00:00.000Z",
-        end_time: "2026-01-01T00:05:00.000Z",
-        duration_ms: 300000,
-        initial_url: "https://example.com",
-        user_agent: "legacy",
-        viewport: { width: 1, height: 1 },
-        pii_mode: "full",
-      },
+    describe("appendScreenshot / readScreenshot", () => {
+      beforeEach(async () => {
+        await store.createSession(makeMetadata());
+      });
+
+      it("stores PNG bytes (never base64) and reads them back", async () => {
+        const bytes = tinyPng();
+        await store.appendScreenshot("ss_1", bytes);
+        const out = await store.readScreenshot("ss_1");
+        expect(out).not.toBeNull();
+        expect(Array.from(out!)).toEqual(Array.from(bytes));
+      });
+
+      it("returns null for an unknown screenshot id", async () => {
+        expect(await store.readScreenshot("missing")).toBeNull();
+      });
+
+      it("iterates all screenshots via readScreenshots", async () => {
+        await store.appendScreenshot("a", tinyPng());
+        await store.appendScreenshot("b", tinyPng());
+        await store.appendScreenshot("c", tinyPng());
+        const ids = [];
+        for await (const ss of store.readScreenshots()) ids.push(ss.id);
+        expect(new Set(ids)).toEqual(new Set(["a", "b", "c"]));
+      });
+
+      it("countScreenshots matches the number of appends", async () => {
+        expect(await store.countScreenshots()).toBe(0);
+        await store.appendScreenshot("a", tinyPng());
+        await store.appendScreenshot("b", tinyPng());
+        expect(await store.countScreenshots()).toBe(2);
+      });
     });
-    const { getSession } = await import("./session-store");
-    const session = await getSession();
-    expect(session).not.toBeNull();
-    expect(session!.status).toBe("stopped");
+
+    describe("computeByteSizes", () => {
+      beforeEach(async () => {
+        await store.createSession(makeMetadata());
+      });
+
+      it("reports zero for an empty session", async () => {
+        const sizes = await store.computeByteSizes();
+        expect(sizes.events).toBe(0);
+        expect(sizes.screenshots).toBe(0);
+      });
+
+      it("reports events bytes from the on-disk JSONL log, not from in-memory strings", async () => {
+        await store.appendEvent(clickEvent());
+        await store.appendEvent(clickEvent("input"));
+        const sizes = await store.computeByteSizes();
+        expect(sizes.events).toBeGreaterThan(0);
+        // The JSONL bytes for two click events should be comfortably
+        // larger than their seq numbers alone, but much smaller than 1KB
+        // — a loose sanity bound that would catch "events reported as
+        // chrome.storage.local JSON-string length" regressions.
+        expect(sizes.events).toBeLessThan(2048);
+      });
+
+      it("reports screenshot bytes as the sum of individual PNG file sizes", async () => {
+        const a = new Uint8Array(100);
+        const b = new Uint8Array(200);
+        await store.appendScreenshot("a", a);
+        await store.appendScreenshot("b", b);
+        const sizes = await store.computeByteSizes();
+        expect(sizes.screenshots).toBe(300);
+      });
+    });
+
+    describe("deleteSession", () => {
+      it("removes every persisted byte for the current session", async () => {
+        await store.createSession(makeMetadata());
+        await store.appendEvent(clickEvent());
+        await store.appendScreenshot("ss_1", tinyPng());
+        await store.deleteSession();
+
+        expect(await store.getSession()).toBeNull();
+        expect(await store.countEvents()).toBe(0);
+        expect(await store.countScreenshots()).toBe(0);
+      });
+
+      it("is idempotent when no session is active", async () => {
+        await expect(store.deleteSession()).resolves.toBeUndefined();
+        await expect(store.deleteSession()).resolves.toBeUndefined();
+      });
+    });
+  });
+}
+
+// Run the whole contract suite against both implementations.
+runContractSuite("FakeSessionStore", () => new FakeSessionStore());
+
+runContractSuite("OpfsSessionStore", () => {
+  const fakeOpfs = createFakeOpfsRoot();
+  const fakeStorage = createFakeChromeStorage();
+  return new OpfsSessionStore({
+    getRoot: fakeOpfs.get,
+    storage: fakeStorage.facade,
   });
 });

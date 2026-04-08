@@ -1,7 +1,7 @@
 // Side panel glue layer. Mounts the two-region UI, wires the
-// storage.onChanged subscription, manages the (idle | active) state
-// machine, persists scroll position per window, and surfaces the
-// first-run privacy notice.
+// storage.onChanged subscription, manages the session lifecycle
+// state machine, persists scroll position per window, and surfaces
+// the first-run privacy notice.
 //
 // PRIVACY-CRITICAL: this module must NOT touch any privileged Chrome
 // capture APIs directly (the visible-tab capture, the CDP debugger
@@ -10,11 +10,9 @@
 // canCaptureRecordedTab() gate from feature #2. Pinned by
 // tests/sidepanel-no-direct-capture.test.ts.
 //
-// State machine: { "idle" | "active" } + a transient `inFlight` flag
-// for in-progress message round-trips. The state is driven by:
-//   - START_SESSION ack → active
-//   - storage change setting session.end_time → idle
-//   - GET_SESSION_STATE response on mount or focus change
+// State machine: SessionStatus from session-status.ts — a single
+// "idle" | "running" | "paused" | "stopped" enum replaces the old
+// parallel (state + paused) booleans.
 
 import type {
   ElementInfo,
@@ -23,13 +21,14 @@ import type {
   SessionMetadata,
   TimelineEvent,
 } from "../types";
+import type { SessionStatus } from "../lib/session-status";
+import { isResetEligible } from "../lib/session-status";
 import { STORAGE_SESSION } from "../constants";
 import { cropScreenshot } from "../lib/image-utils";
 import { PRIVACY_REMINDER_LINE } from "../lib/privacy";
 import {
   eventToRow,
   formatEventTimestamp,
-  shouldAutoScroll,
   type SidePanelEventRow,
 } from "../lib/sidepanel-render";
 import { subscribeToEvents } from "../lib/sidepanel-events-source";
@@ -46,6 +45,11 @@ import {
   isOverSizeThreshold,
 } from "../lib/session-metrics";
 import { SIZE_WARNING_BYTES } from "../constants";
+import {
+  buildControlsModel,
+  type ControlVisibility,
+} from "../lib/sidepanel-controls";
+import { ScrollAnchor } from "../lib/scroll-anchor";
 
 // ─────────────────────────────────────────────────────────────────────
 // Public API
@@ -119,11 +123,19 @@ export interface SidePanelDeps {
     addListener(l: (msg: Message, ...rest: unknown[]) => unknown): void;
     removeListener(l: (msg: Message, ...rest: unknown[]) => unknown): void;
   };
+  /**
+   * Read from chrome.storage.local — used by the discard dialog to
+   * fetch fresh event/screenshot counts at dialog-open time. Injectable
+   * for tests.
+   */
+  readStorage?: (keys: string[]) => Promise<Record<string, unknown>>;
 }
 
 export interface SidePanelHandle {
-  /** Read the current state for tests. */
+  /** Read the current state for tests (legacy compat). */
   getState(): "idle" | "active";
+  /** Read the full SessionStatus. */
+  getStatus(): SessionStatus;
   /** Read whether the active session is currently paused. */
   isPaused(): boolean;
   /** Tear down listeners and DOM (used between tests). */
@@ -178,8 +190,7 @@ export async function mountSidePanel(
   } = deps;
 
   // ─── Local state ──────────────────────────────────────────────────
-  let state: "idle" | "active" = "idle";
-  let paused = false;
+  let status: SessionStatus = "idle";
   let events: TimelineEvent[] = deps.initialEvents ? [...deps.initialEvents] : [];
   let screenshots: Record<string, string> = { ...(deps.initialScreenshots ?? {}) };
   let selectedPiiMode: PiiCaptureMode = deps.initialPiiMode ?? DEFAULT_PII_MODE;
@@ -187,6 +198,8 @@ export async function mountSidePanel(
   let selectedElementDpr: number = 1;
   let windowId: number = -1;
   let scrollDebounce: ReturnType<typeof setTimeout> | null = null;
+
+  const scrollAnchor = new ScrollAnchor();
 
   // ─── DOM skeleton ─────────────────────────────────────────────────
   clearChildren(root);
@@ -222,6 +235,8 @@ export async function mountSidePanel(
   const startBtn = el("button", { id: "start-btn", class: "sp-btn primary" }, ["Start session"]);
   const pauseBtn = el("button", { id: "pause-btn", class: "sp-btn" }, ["Pause"]);
   const stopBtn = el("button", { id: "stop-btn", class: "sp-btn danger" }, ["Stop & download"]);
+  const discardBtn = el("button", { id: "discard-btn", class: "sp-btn danger" }, ["Discard"]);
+  const resetBtn = el("button", { id: "reset-btn", class: "sp-btn" }, ["Reset"]);
   const screenshotBtn = el("button", { id: "screenshot-btn", class: "sp-btn" }, ["Screenshot"]);
   const pickElementBtn = el("button", { id: "pick-element-btn", class: "sp-btn" }, ["Pick element"]);
 
@@ -233,6 +248,8 @@ export async function mountSidePanel(
 
   const elementChip = el("div", { id: "selected-element", class: "selected-element-chip hidden" });
 
+  const emptyStateHint = el("div", { id: "empty-state-hint", class: "empty-state-hint" }, ["Start a session to begin capturing."]);
+
   const metricsRow = el("div", { id: "metrics-row", class: "metrics-row" });
   const metricsDuration = el("span", { class: "metrics-duration" }, ["< 1s"]);
   const metricsCounts = el("span", { class: "metrics-counts" }, ["0 events"]);
@@ -243,8 +260,7 @@ export async function mountSidePanel(
   metricsRow.appendChild(metricsCounts);
   metricsRow.appendChild(document.createTextNode(" · "));
   metricsRow.appendChild(metricsSize);
-  metricsRow.appendChild(document.createTextNode(" "));
-  metricsRow.appendChild(pausedBadge);
+  // pausedBadge is added/removed by applyControlsModel() — not appended here.
 
   // Pre-export reminder panel — hidden until the user clicks Stop.
   const reminderPanel = el("div", { id: "pre-export-reminder", class: "pre-export-reminder hidden", role: "alertdialog" });
@@ -257,24 +273,31 @@ export async function mountSidePanel(
   reminderPanel.appendChild(reminderText);
   reminderPanel.appendChild(reminderActions);
 
-  controls.appendChild(piiFieldset);
-  controls.appendChild(metricsRow);
-  controls.appendChild(elementChip);
-  controls.appendChild(annotationText);
+  // Discard confirmation dialog.
+  const discardDialog = el("div", { id: "discard-confirm-dialog", class: "pre-export-reminder hidden", role: "alertdialog" });
+  const discardDialogText = el("p", { id: "discard-detail", class: "reminder-text" });
+  const discardDialogActions = el("div", { class: "sp-row" });
+  const cancelDiscardBtn = el("button", { id: "cancel-discard-btn", class: "sp-btn" }, ["Cancel"]);
+  const confirmDiscardBtn = el("button", { id: "confirm-discard-btn", class: "sp-btn danger" }, ["Discard"]);
+  discardDialogActions.appendChild(cancelDiscardBtn);
+  discardDialogActions.appendChild(confirmDiscardBtn);
+  discardDialog.appendChild(discardDialogText);
+  discardDialog.appendChild(discardDialogActions);
 
-  const noteRow = el("div", { class: "sp-row" });
-  noteRow.appendChild(addNoteBtn);
-  noteRow.appendChild(pickElementBtn);
-  noteRow.appendChild(screenshotBtn);
-  controls.appendChild(noteRow);
+  // Async error line — shows the last error from a loading action.
+  const asyncErrorLine = el("span", { id: "async-error", class: "async-error" });
 
-  const sessionRow = el("div", { class: "sp-row" });
-  sessionRow.appendChild(startBtn);
-  sessionRow.appendChild(pauseBtn);
-  sessionRow.appendChild(stopBtn);
-  controls.appendChild(sessionRow);
+  // New-events chip — shown when the user has scrolled away from the bottom.
+  const newEventsChip = el("button", { id: "new-events-chip", class: "new-events-chip hidden sp-btn" });
+  newEventsChip.addEventListener("click", () => {
+    scrollAnchor.onJumpToBottom();
+    eventsList.scrollTop = eventsList.scrollHeight;
+    updateChip();
+  });
 
-  controls.appendChild(reminderPanel);
+  // Note: DOM children are mounted/removed dynamically by
+  // applyControlsModel(). We do NOT pre-append everything and toggle
+  // display:none — see buildControlsModel for the visibility contract.
 
   // ─── First-run notice ─────────────────────────────────────────────
   let noticeNode: HTMLElement | null = null;
@@ -361,31 +384,39 @@ export async function mountSidePanel(
         | (SessionMetadata & { end_time: string | null })
         | undefined;
       if (!next || next.end_time != null) {
-        transitionToIdle();
+        transitionTo("idle");
+      } else if (next.status === "paused") {
+        transitionTo("paused");
       } else {
-        transitionToActive();
+        transitionTo("running");
       }
     }
   };
   onChanged.addListener(sessionListener);
 
   // Subscribe to live event broadcasts from the service worker.
-  // EVENT_APPENDED → onAppend, SESSION_CLEARED → onReset(empty).
+  // EVENT_APPENDED -> onAppend, SESSION_CLEARED -> onReset(empty).
   const eventsSubscription = subscribeToEvents(
     {
       onAppend(newEvents) {
         for (const e of newEvents) {
           events.push(e);
           appendRow(eventToRow(e, screenshots));
+          const decision = scrollAnchor.onAppend();
+          if (decision === "scroll-to-bottom") {
+            eventsList.scrollTop = eventsList.scrollHeight;
+          }
         }
-        autoScrollIfNeeded();
+        updateChip();
         updateMetrics();
       },
       onReset(allEvents) {
         events = [...allEvents];
         screenshots = {};
+        scrollAnchor.reset();
         renderAllEvents();
         updateMetrics();
+        transitionTo("idle");
       },
     },
     deps.onRuntimeMessage ? { onMessage: deps.onRuntimeMessage } : undefined,
@@ -426,6 +457,14 @@ export async function mountSidePanel(
   // is provided — the helper would otherwise reach for the global
   // `chrome` which is absent in jsdom tests.
   const scrollHandler = () => {
+    // Feed the scroll anchor so it can track pinned state.
+    scrollAnchor.onUserScroll({
+      scrollTop: eventsList.scrollTop,
+      scrollHeight: eventsList.scrollHeight,
+      clientHeight: eventsList.clientHeight,
+    });
+    updateChip();
+    // Scroll persistence (debounced). Skipped if no sessionStorage shim.
     if (!deps.sessionStorage) return;
     if (scrollDebounce) clearTimeout(scrollDebounce);
     scrollDebounce = setTimeout(() => {
@@ -433,6 +472,23 @@ export async function mountSidePanel(
     }, 200);
   };
   eventsList.addEventListener("scroll", scrollHandler);
+
+  // Escape key handler — closes discard dialog or pre-export reminder.
+  const escapeHandler = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      if (!discardDialog.classList.contains("hidden")) {
+        hideDiscardDialog();
+        e.preventDefault();
+        return;
+      }
+      if (!reminderPanel.classList.contains("hidden")) {
+        hideReminder();
+        e.preventDefault();
+        return;
+      }
+    }
+  };
+  document.addEventListener("keydown", escapeHandler);
 
   // ─── Button wiring ────────────────────────────────────────────────
   startBtn.addEventListener("click", async () => {
@@ -444,9 +500,9 @@ export async function mountSidePanel(
         url: tab?.url ?? "",
         viewport: { width: tab?.width ?? 0, height: tab?.height ?? 0 },
         piiMode: selectedPiiMode,
-      })) as { recording: boolean; warnings?: string[] } | undefined;
+      })) as { recording: boolean; warnings?: string[]; status?: SessionStatus } | undefined;
       if (response?.recording) {
-        transitionToActive();
+        transitionTo("running");
       }
     } catch {
       // Surface to a status line in a future iteration.
@@ -458,7 +514,7 @@ export async function mountSidePanel(
   // (proceed) or Keep recording (cancel). Anti-muscle-memory for a
   // privacy control — initial focus goes to Keep recording.
   stopBtn.addEventListener("click", () => {
-    if (state !== "active") return;
+    if (status !== "running" && status !== "paused") return;
     showReminder();
   });
 
@@ -469,9 +525,12 @@ export async function mountSidePanel(
   downloadBtn.addEventListener("click", async () => {
     hideReminder();
     try {
-      await sendMessage({ type: "STOP_SESSION" });
-      transitionToIdle();
-      await sendMessage({ type: "EXPORT_SESSION" });
+      await withLoadingState(downloadBtn, "Exporting\u2026", async () => {
+        await sendMessage({ type: "STOP_SESSION" });
+        transitionTo("stopped");
+        await sendMessage({ type: "EXPORT_SESSION" });
+        transitionTo("idle");
+      });
     } catch {
       // Non-fatal.
     }
@@ -479,14 +538,17 @@ export async function mountSidePanel(
 
   pauseBtn.addEventListener("click", async () => {
     try {
-      if (paused) {
-        await sendMessage({ type: "RESUME_SESSION" });
-        paused = false;
+      if (status === "paused") {
+        const resp = (await sendMessage({ type: "RESUME_SESSION" })) as
+          | { status?: SessionStatus }
+          | undefined;
+        transitionTo(resp?.status ?? "running");
       } else {
-        await sendMessage({ type: "PAUSE_SESSION" });
-        paused = true;
+        const resp = (await sendMessage({ type: "PAUSE_SESSION" })) as
+          | { status?: SessionStatus }
+          | undefined;
+        transitionTo(resp?.status ?? "paused");
       }
-      applyStateToControls();
     } catch {
       // Non-fatal.
     }
@@ -494,7 +556,9 @@ export async function mountSidePanel(
 
   screenshotBtn.addEventListener("click", async () => {
     try {
-      await sendMessage({ type: "TAKE_SCREENSHOT", trigger: "manual" });
+      await withLoadingState(screenshotBtn, "Capturing\u2026", async () => {
+        await sendMessage({ type: "TAKE_SCREENSHOT", trigger: "manual" });
+      });
     } catch {
       // Non-fatal.
     }
@@ -517,46 +581,138 @@ export async function mountSidePanel(
     const text = annotationText.value.trim();
     if (!text) return;
     try {
-      // If the user picked an element, crop a fresh full-page screenshot
-      // to its bounding box and ship the cropped data with the
-      // annotation. The crop happens at submit time so the page reflects
-      // its current state, matching the original widget semantic.
-      let elementScreenshotData: string | undefined;
-      if (selectedElement?.bounding_box) {
-        try {
-          const response = (await sendMessage({
-            type: "TAKE_SCREENSHOT",
-            trigger: "annotation",
-          })) as { dataUrl?: string } | undefined;
-          if (response?.dataUrl) {
-            elementScreenshotData = await cropScreenshot(
-              response.dataUrl,
-              selectedElement.bounding_box,
-              selectedElementDpr,
-            );
+      await withLoadingState(addNoteBtn, "Saving\u2026", async () => {
+        // If the user picked an element, crop a fresh full-page screenshot
+        // to its bounding box and ship the cropped data with the
+        // annotation. The crop happens at submit time so the page reflects
+        // its current state, matching the original widget semantic.
+        let elementScreenshotData: string | undefined;
+        if (selectedElement?.bounding_box) {
+          try {
+            const response = (await sendMessage({
+              type: "TAKE_SCREENSHOT",
+              trigger: "annotation",
+            })) as { dataUrl?: string } | undefined;
+            if (response?.dataUrl) {
+              elementScreenshotData = await cropScreenshot(
+                response.dataUrl,
+                selectedElement.bounding_box,
+                selectedElementDpr,
+              );
+            }
+          } catch {
+            // Fall back to annotation without element screenshot.
           }
-        } catch {
-          // Fall back to annotation without element screenshot.
         }
-      }
 
-      await sendMessage({
-        type: "ADD_ANNOTATION",
-        text,
-        element: selectedElement ?? undefined,
-        elementScreenshotData,
+        await sendMessage({
+          type: "ADD_ANNOTATION",
+          text,
+          element: selectedElement ?? undefined,
+          elementScreenshotData,
+        });
+        annotationText.value = "";
+        clearSelectedElement();
       });
-      annotationText.value = "";
-      clearSelectedElement();
+    } catch {
+      // Non-fatal.
+    }
+  });
+
+  // Discard button — opens confirmation dialog with fresh counts.
+  discardBtn.addEventListener("click", async () => {
+    if (status !== "running" && status !== "paused") return;
+    try {
+      // Fetch fresh counts — use GET_SESSION_METRICS which works with both
+      // chrome.storage.local AND OPFS backends. readStorage is provided for
+      // tests that need to inject specific snapshots.
+      let eventCount: number;
+      let screenshotCount: number;
+      if (deps.readStorage) {
+        const snap = await deps.readStorage(["deskcheck_events", "deskcheck_screenshots"]);
+        const freshEvents = (snap["deskcheck_events"] ?? []) as unknown[];
+        const freshScreenshots = (snap["deskcheck_screenshots"] ?? {}) as Record<string, unknown>;
+        eventCount = freshEvents.length;
+        screenshotCount = Object.keys(freshScreenshots).length;
+      } else {
+        const metrics = (await sendMessage({ type: "GET_SESSION_METRICS" })) as
+          | { eventCount?: number; screenshotCount?: number }
+          | undefined;
+        eventCount = metrics?.eventCount ?? 0;
+        screenshotCount = metrics?.screenshotCount ?? 0;
+      }
+      showDiscardDialog(eventCount, screenshotCount);
+    } catch {
+      // If we cannot fetch counts, show generic text.
+      showDiscardDialog(events.length, Object.keys(screenshots).length);
+    }
+  });
+
+  cancelDiscardBtn.addEventListener("click", () => {
+    hideDiscardDialog();
+  });
+
+  confirmDiscardBtn.addEventListener("click", async () => {
+    hideDiscardDialog();
+    try {
+      await sendMessage({ type: "DISCARD_SESSION" });
+      events = [];
+      screenshots = {};
+      scrollAnchor.reset();
+      renderAllEvents();
+      transitionTo("idle");
+    } catch {
+      // Non-fatal.
+    }
+  });
+
+  // Reset button — clears residual state after a stopped session.
+  resetBtn.addEventListener("click", async () => {
+    // Defensive re-check: only Reset if still eligible.
+    if (!isResetEligible(status)) return;
+    if (!hasResidualState()) return;
+    try {
+      await sendMessage({ type: "RESET_SESSION" });
+      events = [];
+      screenshots = {};
+      scrollAnchor.reset();
+      renderAllEvents();
+      transitionTo("idle");
     } catch {
       // Non-fatal.
     }
   });
 
   // Initial controls visibility.
-  applyStateToControls();
+  applyControlsModel();
 
   // ─── Helpers ──────────────────────────────────────────────────────
+
+  async function withLoadingState(
+    btn: HTMLButtonElement,
+    busyLabel: string,
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    const idleLabel = btn.textContent ?? "";
+    btn.disabled = true;
+    btn.setAttribute("aria-busy", "true");
+    btn.textContent = busyLabel;
+    try {
+      await fn();
+      asyncErrorLine.textContent = "";
+    } catch (err) {
+      asyncErrorLine.textContent = String(err);
+      throw err;
+    } finally {
+      btn.disabled = false;
+      btn.removeAttribute("aria-busy");
+      btn.textContent = idleLabel;
+    }
+  }
+
+  function hasResidualState(): boolean {
+    return events.length > 0 || Object.keys(screenshots).length > 0;
+  }
 
   async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
     if (deps.queryActiveTab) {
@@ -577,15 +733,15 @@ export async function mountSidePanel(
   async function refreshSessionState() {
     try {
       const result = (await sendMessage({ type: "GET_SESSION_STATE" })) as
-        | { recording?: boolean; paused?: boolean; piiMode?: PiiCaptureMode }
+        | { recording?: boolean; paused?: boolean; status?: SessionStatus; piiMode?: PiiCaptureMode }
         | undefined;
-      if (result?.recording) {
-        transitionToActive();
+      if (result?.status) {
+        transitionTo(result.status);
+      } else if (result?.recording) {
+        transitionTo(result.paused ? "paused" : "running");
       } else {
-        transitionToIdle();
+        transitionTo("idle");
       }
-      paused = !!result?.paused;
-      applyStateToControls();
       if (result?.piiMode) {
         selectedPiiMode = parsePiiMode(result.piiMode);
         const radio = piiFieldset.querySelector<HTMLInputElement>(
@@ -598,35 +754,97 @@ export async function mountSidePanel(
     }
   }
 
-  function transitionToActive() {
-    state = "active";
-    applyStateToControls();
-  }
-
-  function transitionToIdle() {
-    state = "idle";
-    paused = false;
-    hideReminder();
-    clearSelectedElement();
-    applyStateToControls();
-  }
-
-  function applyStateToControls() {
-    if (state === "active") {
-      startBtn.style.display = "none";
-      pauseBtn.style.display = "";
-      stopBtn.style.display = "";
-      pauseBtn.textContent = paused ? "Resume" : "Pause";
-      pauseBtn.classList.toggle("primary", paused);
-      pausedBadge.classList.toggle("hidden", !paused);
-    } else {
-      startBtn.style.display = "";
-      pauseBtn.style.display = "none";
-      stopBtn.style.display = "none";
-      pausedBadge.classList.add("hidden");
+  function transitionTo(next: SessionStatus) {
+    status = next;
+    if (status === "idle") {
+      hideReminder();
+      hideDiscardDialog();
+      clearSelectedElement();
     }
-    // Annotation/screenshot remain enabled in both states. The SW gates
-    // capture when no session is active (it's a no-op there).
+    applyControlsModel();
+  }
+
+  function applyControlsModel() {
+    const model: ControlVisibility = buildControlsModel({
+      status,
+      hasResidualState: hasResidualState(),
+    });
+
+    // Clear all children and re-mount only the visible ones.
+    // This ensures hidden controls are absent from the DOM, not merely
+    // display:none. The DoD requires querySelector(...) === null for
+    // hidden controls.
+    clearChildren(controls);
+
+    // Always: PII fieldset and metrics row.
+    if (model.piiMode) controls.appendChild(piiFieldset);
+    if (model.metrics) controls.appendChild(metricsRow);
+
+    // Empty-state hint (pre-session, no residual).
+    if (model.emptyStateHint) controls.appendChild(emptyStateHint);
+
+    // Paused badge — structurally add/remove from metricsRow (hide-not-disable).
+    if (model.pausedBadge) {
+      if (!metricsRow.contains(pausedBadge)) {
+        metricsRow.appendChild(document.createTextNode(" "));
+        metricsRow.appendChild(pausedBadge);
+      }
+    } else {
+      if (metricsRow.contains(pausedBadge)) {
+        pausedBadge.remove();
+      }
+    }
+
+    // Pause button label.
+    if (status === "paused") {
+      pauseBtn.textContent = "Resume";
+      pauseBtn.classList.add("primary");
+    } else {
+      pauseBtn.textContent = "Pause";
+      pauseBtn.classList.remove("primary");
+    }
+
+    // Element chip — only during active session.
+    if (model.annotation) {
+      controls.appendChild(elementChip);
+      controls.appendChild(annotationText);
+    }
+
+    // Note row: add-note, pick-element, screenshot.
+    if (model.annotation || model.screenshot || model.elementPicker) {
+      const noteRow = el("div", { class: "sp-row" });
+      if (model.annotation) noteRow.appendChild(addNoteBtn);
+      if (model.elementPicker) noteRow.appendChild(pickElementBtn);
+      if (model.screenshot) noteRow.appendChild(screenshotBtn);
+      controls.appendChild(noteRow);
+    }
+
+    // Lifecycle row: pause, stop, discard OR start (+reset).
+    if (model.pause || model.stop || model.discard) {
+      const lifecycleRow = el("div", { class: "sp-row" });
+      if (model.pause) lifecycleRow.appendChild(pauseBtn);
+      if (model.stop) lifecycleRow.appendChild(stopBtn);
+      if (model.discard) lifecycleRow.appendChild(discardBtn);
+      controls.appendChild(lifecycleRow);
+    }
+
+    if (model.start || model.reset) {
+      const preSessionRow = el("div", { class: "sp-row" });
+      if (model.start) preSessionRow.appendChild(startBtn);
+      if (model.reset) preSessionRow.appendChild(resetBtn);
+      controls.appendChild(preSessionRow);
+    }
+
+    // Reminder panels and error line — always appended when relevant
+    // controls are present. They start hidden via CSS class.
+    if (model.stop) {
+      controls.appendChild(reminderPanel);
+    }
+    if (model.discard) {
+      controls.appendChild(discardDialog);
+    }
+    controls.appendChild(asyncErrorLine);
+    controls.appendChild(newEventsChip);
   }
 
   function showReminder() {
@@ -636,6 +854,24 @@ export async function mountSidePanel(
 
   function hideReminder() {
     reminderPanel.classList.add("hidden");
+  }
+
+  function showDiscardDialog(eventCount: number, screenshotCount: number) {
+    const parts: string[] = [];
+    if (eventCount > 0) {
+      parts.push(`${eventCount} event${eventCount === 1 ? "" : "s"}`);
+    }
+    if (screenshotCount > 0) {
+      parts.push(`${screenshotCount} screenshot${screenshotCount === 1 ? "" : "s"}`);
+    }
+    const countText = parts.length > 0 ? parts.join(" and ") : "all session data";
+    discardDialogText.textContent = `Delete ${countText}?`;
+    discardDialog.classList.remove("hidden");
+    cancelDiscardBtn.focus();
+  }
+
+  function hideDiscardDialog() {
+    discardDialog.classList.add("hidden");
   }
 
   function onPickResult(element: ElementInfo | null, dpr: number) {
@@ -731,15 +967,13 @@ export async function mountSidePanel(
     eventsList.appendChild(li);
   }
 
-  function autoScrollIfNeeded() {
-    if (
-      shouldAutoScroll(
-        eventsList.scrollTop,
-        eventsList.scrollHeight,
-        eventsList.clientHeight,
-      )
-    ) {
-      eventsList.scrollTop = eventsList.scrollHeight;
+  function updateChip() {
+    const count = scrollAnchor.chipCount();
+    if (count > 0) {
+      newEventsChip.textContent = `${count} new event${count === 1 ? "" : "s"}`;
+      newEventsChip.classList.remove("hidden");
+    } else {
+      newEventsChip.classList.add("hidden");
     }
   }
 
@@ -767,11 +1001,13 @@ export async function mountSidePanel(
 
   // ─── Handle ───────────────────────────────────────────────────────
   return {
-    getState: () => state,
-    isPaused: () => paused,
+    getState: () => (status === "running" || status === "paused" ? "active" : "idle"),
+    getStatus: () => status,
+    isPaused: () => status === "paused",
     unmount: () => {
       if (scrollDebounce) clearTimeout(scrollDebounce);
       eventsList.removeEventListener("scroll", scrollHandler);
+      document.removeEventListener("keydown", escapeHandler);
       onChanged.removeListener(sessionListener);
       onWindowFocusChanged.removeListener(focusListener);
       if (deps.onRuntimeMessage) {

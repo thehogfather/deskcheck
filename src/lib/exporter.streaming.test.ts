@@ -57,6 +57,7 @@ function makeMetadata(id: string): SessionMetadata {
     user_agent: "Stream/1.0",
     viewport: { width: 1280, height: 720 },
     pii_mode: "full",
+      status: "running",
   };
 }
 

@@ -54,6 +54,7 @@ describe("OpfsSessionStore.ensureReady — recovery after simulated SW wake", ()
       user_agent: "TestAgent",
       viewport: { width: 1024, height: 768 },
       pii_mode: "full",
+      status: "running",
     });
     for (let i = 0; i < 5; i++) await first.appendEvent(click(String(i)));
     expect(await first.countEvents()).toBe(5);
@@ -99,6 +100,7 @@ describe("OpfsSessionStore — chrome.storage.local is metadata-only", () => {
       user_agent: "TestAgent",
       viewport: { width: 1024, height: 768 },
       pii_mode: "full",
+      status: "running",
     });
 
     for (let i = 0; i < 3; i++) await store.appendEvent(click(String(i)));
@@ -145,6 +147,7 @@ describe("OpfsSessionStore — partial trailing line tolerance", () => {
       user_agent: "TestAgent",
       viewport: { width: 1024, height: 768 },
       pii_mode: "full",
+      status: "running",
     });
     await store.appendEvent(click("a"));
     await store.appendEvent(click("b"));
