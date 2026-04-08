@@ -20,6 +20,7 @@
 // stubs for tabs.group, tabs.ungroup, tabGroups.query, tabGroups.update.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { createFakeOpfsRoot } from "../src/lib/__fixtures__/fake-opfs";
 
 type Fn = ReturnType<typeof vi.fn>;
 
@@ -32,6 +33,7 @@ interface MockChrome {
   runtime: {
     onMessage: { addListener: Fn };
     onInstalled: { addListener: Fn };
+    sendMessage: Fn;
   };
   action: {
     setBadgeText: Fn;
@@ -80,6 +82,7 @@ function installFakeChrome(): MockChrome {
     runtime: {
       onMessage: { addListener: vi.fn() },
       onInstalled: { addListener: vi.fn() },
+      sendMessage: vi.fn().mockResolvedValue(undefined),
     },
     action: {
       setBadgeText: vi.fn(),
@@ -130,6 +133,14 @@ function installFakeChrome(): MockChrome {
     // @ts-expect-error — minimum navigator stub.
     globalThis.navigator = { userAgent: "test" };
   }
+  // OpfsSessionStore (constructed at module init by service-worker.ts)
+  // calls navigator.storage.getDirectory() during createSession. Install
+  // a fake OPFS root so the SW can run end-to-end in node.
+  const fakeOpfs = createFakeOpfsRoot();
+  // @ts-expect-error — minimum navigator.storage stub.
+  globalThis.navigator.storage = {
+    getDirectory: async () => fakeOpfs.root,
+  };
   if (!globalThis.crypto || !globalThis.crypto.randomUUID) {
     // @ts-expect-error — minimum crypto stub.
     globalThis.crypto = { randomUUID: () => "test-uuid" };

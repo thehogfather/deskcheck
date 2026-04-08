@@ -3,6 +3,10 @@ import { OpfsSessionStore } from "../lib/opfs-session-store";
 import type { SessionStore } from "../lib/session-store-types";
 import { DebuggerClient } from "../lib/debugger-client";
 import { DEFAULT_PII_MODE, parsePiiMode } from "../lib/pii-modes";
+import {
+  assignTabToDeskCheckGroup,
+  removeTabFromDeskCheckGroup,
+} from "../lib/tab-group";
 import { SIDEPANEL_PATH } from "../constants";
 import { exportSessionStreaming, getExportFilename } from "../lib/exporter";
 import { computeSessionMetrics } from "../lib/session-metrics";
@@ -491,6 +495,22 @@ async function handleMessage(
         } catch {
           // Content script should pick up via storage.onChanged fallback
         }
+
+        // Feature #9: best-effort tab grouping. Any failure is logged
+        // and swallowed inside the helper — grouping is decorative and
+        // must never block recording. Not awaited: we do not care
+        // whether the cue appears before START_SESSION resolves.
+        try {
+          const tab = await chrome.tabs.get(activeTabId);
+          if (tab.windowId != null) {
+            void assignTabToDeskCheckGroup(activeTabId, tab.windowId);
+          }
+        } catch (err) {
+          console.warn(
+            "[DeskCheck] Failed to look up tab for grouping:",
+            err,
+          );
+        }
       }
       return { recording: true, sessionId: session.id, warnings };
     }
@@ -524,6 +544,10 @@ async function handleMessage(
           .catch(() => {
             // Tab may already be closed
           });
+        // Feature #9: best-effort removal from the DeskCheck tab
+        // group. Chrome auto-deletes the group if it becomes empty.
+        // Unawaited — the helper never throws.
+        void removeTabFromDeskCheckGroup(tabToNotify);
       }
       return { recording: false, sessionId: stoppedSessionId };
     }
@@ -751,7 +775,8 @@ chrome.commands.onCommand.addListener(async (command) => {
 // ── Tab close handling ──
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
-  if (tabId === activeTabId && isSessionInFlight()) {
+  const wasRecordingTab = tabId === activeTabId && isSessionInFlight();
+  if (wasRecordingTab) {
     try {
       await debuggerClient.detach();
       const session = await store.getSession();
@@ -772,6 +797,12 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
       setBadge(false);
     }
   }
+  // Feature #9: best-effort tab-group cleanup. This MUST run inside
+  // its own fire-and-forget wrapper and MUST come after the
+  // panelBoundTabId cleanup below, so a throwing tab-group call
+  // cannot prevent the side panel binding from being released. The
+  // helper itself never rejects, but we still wrap in `void` to make
+  // the ordering self-evident to future readers.
   if (tabId === panelBoundTabId) {
     // The tab hosting the panel is gone. Chrome drops per-tab
     // sidePanel entries automatically on tab removal, so we just
@@ -779,6 +810,9 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
     // tabs keep their disabled entries — the next click on one of
     // them will go through enablePanelOnTab, which re-enables it.
     panelBoundTabId = null;
+  }
+  if (wasRecordingTab) {
+    void removeTabFromDeskCheckGroup(tabId);
   }
 });
 
