@@ -1,4 +1,5 @@
 import type { PiiCaptureMode, InputMetadata } from "./lib/pii-modes";
+import type { SessionStatus } from "./lib/session-status";
 
 // ── Session ──
 
@@ -12,6 +13,17 @@ export interface SessionMetadata {
   user_agent: string;
   viewport: Viewport;
   pii_mode: PiiCaptureMode;
+  /**
+   * Lifecycle state of the session. Written on every transition
+   * (running → paused → running → stopped). Legacy sessions written
+   * before schema 1.2.0 default to `"running"` if `end_time` is null
+   * and `"stopped"` otherwise — legacy compat lives in
+   * `session-store.getSession()`.
+   *
+   * Note: `"idle"` is never persisted. When the session metadata key
+   * is absent the reader infers idle.
+   */
+  status: Exclude<SessionStatus, "idle">;
 }
 
 export interface Viewport {
@@ -103,6 +115,24 @@ export interface ScreenshotEvent extends BaseEvent {
   trigger: "annotation" | "navigation" | "manual";
 }
 
+/**
+ * Marker written to the timeline when the user pauses capture via the
+ * side panel. Paired with a `session_resumed` marker (or the end of
+ * the session) so exported zips are self-describing about gaps in
+ * coverage. No payload — the timestamp is the signal.
+ */
+export interface SessionPausedEvent extends BaseEvent {
+  type: "session_paused";
+}
+
+/**
+ * Marker written to the timeline when the user resumes capture after
+ * a pause. See SessionPausedEvent for the paired semantics.
+ */
+export interface SessionResumedEvent extends BaseEvent {
+  type: "session_resumed";
+}
+
 export type TimelineEvent =
   | InteractionEvent
   | ViewportResizeEvent
@@ -110,12 +140,14 @@ export type TimelineEvent =
   | ConsoleErrorEvent
   | JsExceptionEvent
   | AnnotationEvent
-  | ScreenshotEvent;
+  | ScreenshotEvent
+  | SessionPausedEvent
+  | SessionResumedEvent;
 
 // ── Export Schema ──
 
 export interface SessionExport {
-  schema_version: "1.1.0";
+  schema_version: "1.2.0";
   session: SessionMetadata;
   timeline: TimelineEvent[];
   summary: SessionSummary;
@@ -158,6 +190,8 @@ export type Message =
   | { type: "STOP_SESSION" }
   | { type: "PAUSE_SESSION" }
   | { type: "RESUME_SESSION" }
+  | { type: "DISCARD_SESSION" }
+  | { type: "RESET_SESSION" }
   | { type: "SESSION_STARTED"; sessionId: string; piiMode: PiiCaptureMode }
   | { type: "SESSION_STOPPED" }
   | { type: "RECORD_EVENT"; event: TimelineEventInput }

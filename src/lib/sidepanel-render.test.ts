@@ -24,6 +24,8 @@ const EXPECTED_DISCRIMINATORS: ReadonlySet<TimelineEvent["type"]> = new Set([
   "js_exception",
   "annotation",
   "screenshot",
+  "session_paused",
+  "session_resumed",
 ]);
 
 const FIXED_NOW = new Date("2026-04-07T15:30:00.000Z");
@@ -66,6 +68,10 @@ function fixture(type: TimelineEvent["type"]): TimelineEvent {
         viewport: { width: 1024, height: 768 },
         trigger: "manual",
       };
+    case "session_paused":
+      return { ...base, type };
+    case "session_resumed":
+      return { ...base, type };
   }
 }
 
@@ -141,7 +147,27 @@ describe("eventToRow exhaustiveness (matrix #6b)", () => {
   it("EXPECTED_DISCRIMINATORS matches the TimelineEvent union", () => {
     // If you're touching this test, also update agents-doc, agents-doc.test
     // and the side-panel render module.
-    expect(EXPECTED_DISCRIMINATORS.size).toBe(7);
+    expect(EXPECTED_DISCRIMINATORS.size).toBe(9);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Feature #11 — lifecycle markers render as info-accented rows
+// ─────────────────────────────────────────────────────────────────────
+
+describe("lifecycle marker rendering (feature-11)", () => {
+  it("session_paused event produces a 'Paused' row with info accent", () => {
+    const row = eventToRow(fixture("session_paused"), {});
+    expect(row.label).toBe("Paused");
+    expect(row.accent).toBe("info");
+    expect(row.images).toEqual([]);
+  });
+
+  it("session_resumed event produces a 'Resumed' row with info accent", () => {
+    const row = eventToRow(fixture("session_resumed"), {});
+    expect(row.label).toBe("Resumed");
+    expect(row.accent).toBe("info");
+    expect(row.images).toEqual([]);
   });
 });
 
