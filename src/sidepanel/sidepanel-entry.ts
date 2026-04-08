@@ -3,15 +3,8 @@
 // in `sidepanel.ts` directly and never load this file.
 
 import { mountSidePanel, type SidePanelDeps } from "./sidepanel";
-import {
-  STORAGE_EVENTS,
-  STORAGE_SCREENSHOTS,
-} from "../constants";
-import {
-  getFirstRunSeen,
-  markFirstRunSeen,
-} from "../lib/privacy-store";
-import type { Message, TimelineEvent } from "../types";
+import { getFirstRunSeen, markFirstRunSeen } from "../lib/privacy-store";
+import type { Message } from "../types";
 
 async function main() {
   const root = document.getElementById("sidepanel-root");
@@ -48,15 +41,10 @@ async function main() {
     reportVisibility("change");
   });
 
-  // Fetch any pre-existing session state so the panel mounts directly
-  // into the active view if a session is already running when the user
-  // opens it.
-  const stored = await chrome.storage.local.get([
-    STORAGE_EVENTS,
-    STORAGE_SCREENSHOTS,
-  ]);
-  const initialEvents = (stored[STORAGE_EVENTS] as TimelineEvent[] | undefined) ?? [];
-  const initialScreenshots = (stored[STORAGE_SCREENSHOTS] as Record<string, string> | undefined) ?? {};
+  // Events and screenshots no longer live in chrome.storage.local
+  // (feature #5 moved them to OPFS). The side panel hydrates its
+  // initial events feed by sending GET_EVENTS_SNAPSHOT to the service
+  // worker — see sidepanel.ts.
 
   const deps: SidePanelDeps = {
     root,
@@ -69,8 +57,6 @@ async function main() {
     },
     getFirstRunSeen,
     markFirstRunSeen,
-    initialEvents,
-    initialScreenshots,
     // chrome.storage.session is exposed on MV3 builds but not in the
     // ambient @types/chrome we use; cast through unknown.
     sessionStorage: (chrome.storage as unknown as { session: SidePanelDeps["sessionStorage"] }).session,
@@ -78,7 +64,7 @@ async function main() {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       return tabs[0];
     },
-    onRuntimeMessage: chrome.runtime.onMessage,
+    onRuntimeMessage: chrome.runtime.onMessage as unknown as SidePanelDeps["onRuntimeMessage"],
   };
 
   await mountSidePanel(deps);

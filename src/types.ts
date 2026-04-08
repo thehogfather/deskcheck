@@ -152,6 +152,7 @@ export interface SessionMetrics {
 export type Message =
   | { type: "GET_SESSION_STATE" }
   | { type: "GET_SESSION_METRICS" }
+  | { type: "GET_EVENTS_SNAPSHOT" }
   | { type: "SESSION_STATE"; recording: boolean; sessionId: string | null; activeTabId: number | null }
   | { type: "START_SESSION"; tabId: number; url: string; viewport: Viewport; piiMode?: PiiCaptureMode }
   | { type: "STOP_SESSION" }
@@ -165,6 +166,14 @@ export type Message =
   | { type: "ADD_ANNOTATION"; text: string; element?: ElementInfo; elementScreenshotData?: string }
   | { type: "START_ELEMENT_PICKER" }
   | { type: "CANCEL_ELEMENT_PICKER" }
-  | { type: "PICK_ELEMENT_RESULT"; element: ElementInfo | null; devicePixelRatio: number };
+  | { type: "PICK_ELEMENT_RESULT"; element: ElementInfo | null; devicePixelRatio: number }
+  // ── Live broadcasts from the service worker to the side panel ──
+  // After feature #5 moved events out of chrome.storage.local into OPFS,
+  // the side panel can no longer subscribe to a storage key for live
+  // updates. The SW broadcasts these messages instead. The side panel's
+  // sidepanel-events-source.ts subscribes via chrome.runtime.onMessage.
+  | { type: "EVENT_APPENDED"; event: TimelineEvent }
+  | { type: "SCREENSHOT_APPENDED"; id: string; dataUrl: string }
+  | { type: "SESSION_CLEARED" };
 
 export type { PiiCaptureMode, InputMetadata } from "./lib/pii-modes";

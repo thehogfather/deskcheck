@@ -1,102 +1,69 @@
-// Wrapper around chrome.storage.onChanged that exposes a clean
+// Wrapper around chrome.runtime.onMessage that exposes a clean
 // "subscribe to events" API for the side panel.
 //
-// PRIVACY / INVARIANT:
-// - Reads change.newValue DIRECTLY (never calls getEvents() or any
-//   store accessor — pinned by spy test in sidepanel-events-source.test.ts).
-// - Computes a delta as `newValue.slice(lastSeenLength)` (append-only).
-// - If newValue.length < lastSeenLength OR newValue is undefined,
-//   fires `onReset(newValue ?? [])` instead of `onAppend`.
-//
-// The append-only contract is pinned on the write side by
-// session-store.test.ts; this subscriber depends on it but tolerates
-// shrinks gracefully via the reset path.
+// PRIVACY / CORRECTNESS NOTES:
+// - After feature #5 moved events out of chrome.storage.local into OPFS,
+//   the side panel can no longer use chrome.storage.onChanged to learn
+//   about new events. Instead, the service worker fires runtime
+//   `EVENT_APPENDED` broadcasts after each successful append.
+// - This module never reads from any store; it only relays the
+//   broadcast events into the caller-supplied callbacks. The append-only
+//   contract is enforced on the write side by SessionStore (pinned by
+//   src/lib/session-store.test.ts).
+// - `SESSION_CLEARED` is mapped to a full reset.
 
-import type { TimelineEvent } from "../types";
-import { STORAGE_EVENTS } from "../constants";
+import type { Message, TimelineEvent } from "../types";
 
-export interface OnChangedListener {
-  (
-    changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
-    areaName: string,
-  ): void;
+// We keep the listener shape narrow on purpose: side panel callers
+// only need the message itself. The real chrome.runtime.onMessage API
+// passes (msg, sender, sendResponse), but ignoring the extra args is
+// always safe — JavaScript drops them silently.
+export interface RuntimeMessageListener {
+  (msg: Message, ...rest: unknown[]): unknown;
 }
 
-export interface StorageOnChangedApi {
-  addListener(listener: OnChangedListener): void;
-  removeListener(listener: OnChangedListener): void;
+export interface RuntimeOnMessageApi {
+  addListener(listener: RuntimeMessageListener): void;
+  removeListener(listener: RuntimeMessageListener): void;
 }
 
 export interface EventsSourceCallbacks {
   /** Fired with new events appended since the last delta. */
   onAppend(newEvents: TimelineEvent[]): void;
-  /** Fired when the events array shrinks, is removed, or is replaced. */
+  /** Fired when the session is cleared (e.g. after export/delete). */
   onReset(allEvents: TimelineEvent[]): void;
 }
 
 export interface SubscribeOptions {
-  /** Override the chrome.storage.onChanged API for tests. */
-  onChanged?: StorageOnChangedApi;
-  /** Storage key holding the events array. Defaults to STORAGE_EVENTS. */
-  storageKey?: string;
-  /** Initial events list (so the helper knows lastSeenLength). */
-  initial?: TimelineEvent[];
+  /** Override the chrome.runtime.onMessage API for tests. */
+  onMessage?: RuntimeOnMessageApi;
 }
 
 export interface Subscription {
   unsubscribe(): void;
 }
 
-function defaultOnChanged(): StorageOnChangedApi {
-  return chrome.storage.onChanged as unknown as StorageOnChangedApi;
+function defaultOnMessage(): RuntimeOnMessageApi {
+  return chrome.runtime.onMessage as unknown as RuntimeOnMessageApi;
 }
 
 export function subscribeToEvents(
   callbacks: EventsSourceCallbacks,
   options: SubscribeOptions = {},
 ): Subscription {
-  const api = options.onChanged ?? defaultOnChanged();
-  const storageKey = options.storageKey ?? STORAGE_EVENTS;
-  let lastSeenLength = options.initial?.length ?? 0;
+  const api = options.onMessage ?? defaultOnMessage();
 
-  const listener: OnChangedListener = (changes, areaName) => {
-    if (areaName !== "local") return;
-    if (!(storageKey in changes)) return;
-
-    const change = changes[storageKey];
-    const newValue = change.newValue as TimelineEvent[] | undefined;
-
-    if (newValue === undefined) {
-      lastSeenLength = 0;
+  const listener: RuntimeMessageListener = (msg) => {
+    if (!msg || typeof msg !== "object") return;
+    const m = msg as Message;
+    if (m.type === "EVENT_APPENDED") {
+      callbacks.onAppend([m.event]);
+      return;
+    }
+    if (m.type === "SESSION_CLEARED") {
       callbacks.onReset([]);
       return;
     }
-
-    if (!Array.isArray(newValue)) {
-      // Defensive: if storage is corrupted into a non-array shape,
-      // treat it as a reset to empty.
-      lastSeenLength = 0;
-      callbacks.onReset([]);
-      return;
-    }
-
-    if (newValue.length < lastSeenLength) {
-      lastSeenLength = newValue.length;
-      callbacks.onReset(newValue);
-      return;
-    }
-
-    if (newValue.length === lastSeenLength) {
-      // No-op: same-length update (e.g. metadata-only rewrite). The
-      // append-only contract means an in-place edit at the same length
-      // is suspicious — surface as a full reset to keep the UI honest.
-      callbacks.onReset(newValue);
-      return;
-    }
-
-    const appended = newValue.slice(lastSeenLength);
-    lastSeenLength = newValue.length;
-    callbacks.onAppend(appended);
   };
 
   api.addListener(listener);

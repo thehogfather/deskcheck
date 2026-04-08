@@ -23,11 +23,7 @@ import type {
   SessionMetadata,
   TimelineEvent,
 } from "../types";
-import {
-  STORAGE_EVENTS,
-  STORAGE_SESSION,
-  STORAGE_SCREENSHOTS,
-} from "../constants";
+import { STORAGE_SESSION } from "../constants";
 import { cropScreenshot } from "../lib/image-utils";
 import { PRIVACY_REMINDER_LINE } from "../lib/privacy";
 import {
@@ -36,10 +32,7 @@ import {
   shouldAutoScroll,
   type SidePanelEventRow,
 } from "../lib/sidepanel-render";
-import {
-  subscribeToEvents,
-  type StorageOnChangedApi,
-} from "../lib/sidepanel-events-source";
+import { subscribeToEvents } from "../lib/sidepanel-events-source";
 import {
   getScrollPosition,
   setScrollPosition,
@@ -58,12 +51,33 @@ import { SIZE_WARNING_BYTES } from "../constants";
 // Public API
 // ─────────────────────────────────────────────────────────────────────
 
+// chrome.storage.onChanged shape — used by the side panel to react to
+// session metadata changes. Events and screenshots no longer flow through
+// chrome.storage.local; those come via runtime broadcasts (see
+// sidepanel-events-source.ts).
+export interface StorageOnChangedApi {
+  addListener(
+    listener: (
+      changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
+      areaName: string,
+    ) => void,
+  ): void;
+  removeListener(
+    listener: (
+      changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
+      areaName: string,
+    ) => void,
+  ): void;
+}
+
 export interface SidePanelDeps {
   /** Root element to mount into (typically `document.body`). */
   root: HTMLElement;
   /** chrome.runtime.sendMessage shim for tests. */
   sendMessage: (msg: Message) => Promise<unknown>;
-  /** chrome.storage.onChanged shim for tests. */
+  /** chrome.storage.onChanged shim for tests. Used to observe session
+   *  metadata changes (start/stop) — events and screenshots come via
+   *  runtime broadcasts now. */
   onChanged: StorageOnChangedApi;
   /** chrome.windows.onFocusChanged shim for cross-window refetch. */
   onWindowFocusChanged: {
@@ -94,13 +108,16 @@ export interface SidePanelDeps {
    */
   queryActiveTab?: () => Promise<chrome.tabs.Tab | undefined>;
   /**
-   * chrome.runtime.onMessage shim. The side panel listens for
-   * PICK_ELEMENT_RESULT messages from the content script after a
-   * "Pick element" round-trip. Injectable for tests.
+   * chrome.runtime.onMessage shim. The side panel listens for:
+   *  - `PICK_ELEMENT_RESULT` from the content script after a "Pick
+   *    element" round-trip,
+   *  - `EVENT_APPENDED` / `SCREENSHOT_APPENDED` / `SESSION_CLEARED`
+   *    broadcasts from the service worker (the live event feed).
+   * Injectable for tests.
    */
   onRuntimeMessage?: {
-    addListener(l: (msg: Message) => void): void;
-    removeListener(l: (msg: Message) => void): void;
+    addListener(l: (msg: Message, ...rest: unknown[]) => unknown): void;
+    removeListener(l: (msg: Message, ...rest: unknown[]) => unknown): void;
   };
 }
 
@@ -304,38 +321,41 @@ export async function mountSidePanel(
   // Initial state fetch — drives idle/active.
   void refreshSessionState();
 
-  // Subscribe to event appends.
-  const eventsSubscription = subscribeToEvents(
-    {
-      onAppend(newEvents) {
-        for (const e of newEvents) {
-          events.push(e);
-          appendRow(eventToRow(e, screenshots));
-        }
-        autoScrollIfNeeded();
-        updateMetrics();
-      },
-      onReset(allEvents) {
-        events = [...allEvents];
+  // Hydrate the events feed from the service worker. After feature #5
+  // events live in OPFS, not chrome.storage.local, so the side panel
+  // can no longer just read them off a storage key on mount.
+  void (async () => {
+    try {
+      const snapshot = (await sendMessage({ type: "GET_EVENTS_SNAPSHOT" })) as
+        | { events?: TimelineEvent[]; screenshots?: Record<string, string> }
+        | undefined;
+      if (snapshot?.screenshots) {
+        screenshots = { ...screenshots, ...snapshot.screenshots };
+      }
+      if (snapshot?.events && snapshot.events.length > 0) {
+        events = [...snapshot.events];
         renderAllEvents();
         updateMetrics();
-      },
-    },
-    { onChanged, initial: events },
-  );
+      } else if (events.length > 0) {
+        // initialEvents was provided by deps; re-render with any
+        // screenshots that arrived alongside the snapshot.
+        renderAllEvents();
+        updateMetrics();
+      }
+    } catch {
+      // SW may not be ready yet — fall back to whatever initialEvents/
+      // initialScreenshots the deps provided.
+    }
+  })();
 
-  // Listen for session/screenshots changes via the same onChanged hook.
+  // Listen for session metadata changes via chrome.storage.onChanged.
+  // Events and screenshots no longer live in chrome.storage.local —
+  // those updates come via runtime broadcasts (see below).
   const sessionListener = (
     changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
     areaName: string,
   ) => {
     if (areaName !== "local") return;
-    if (STORAGE_SCREENSHOTS in changes) {
-      const next = changes[STORAGE_SCREENSHOTS].newValue as
-        | Record<string, string>
-        | undefined;
-      screenshots = { ...(next ?? {}) };
-    }
     if (STORAGE_SESSION in changes) {
       const next = changes[STORAGE_SESSION].newValue as
         | (SessionMetadata & { end_time: string | null })
@@ -349,6 +369,28 @@ export async function mountSidePanel(
   };
   onChanged.addListener(sessionListener);
 
+  // Subscribe to live event broadcasts from the service worker.
+  // EVENT_APPENDED → onAppend, SESSION_CLEARED → onReset(empty).
+  const eventsSubscription = subscribeToEvents(
+    {
+      onAppend(newEvents) {
+        for (const e of newEvents) {
+          events.push(e);
+          appendRow(eventToRow(e, screenshots));
+        }
+        autoScrollIfNeeded();
+        updateMetrics();
+      },
+      onReset(allEvents) {
+        events = [...allEvents];
+        screenshots = {};
+        renderAllEvents();
+        updateMetrics();
+      },
+    },
+    deps.onRuntimeMessage ? { onMessage: deps.onRuntimeMessage } : undefined,
+  );
+
   // Cross-window focus refetch.
   const focusListener = (focusedWindowId: number) => {
     if (focusedWindowId < 0) return;
@@ -356,11 +398,22 @@ export async function mountSidePanel(
   };
   onWindowFocusChanged.addListener(focusListener);
 
-  // Runtime message listener — receives PICK_ELEMENT_RESULT from the
-  // content script after the user finishes the element-picker overlay.
+  // Runtime message listener — handles PICK_ELEMENT_RESULT (from the
+  // content script after element picker) and SCREENSHOT_APPENDED (so
+  // newly captured screenshot bytes can be rendered inline as
+  // thumbnails on existing event rows). Both share the same
+  // chrome.runtime.onMessage hook the events subscription uses.
   const runtimeListener = (msg: Message) => {
     if (msg.type === "PICK_ELEMENT_RESULT") {
       onPickResult(msg.element, msg.devicePixelRatio);
+      return;
+    }
+    if (msg.type === "SCREENSHOT_APPENDED") {
+      screenshots[msg.id] = msg.dataUrl;
+      // Backfill any already-rendered annotation rows that referenced
+      // this screenshot id before the bytes arrived.
+      hydrateThumbsForScreenshot(msg.id, msg.dataUrl);
+      return;
     }
   };
   if (deps.onRuntimeMessage) {
@@ -614,6 +667,38 @@ export async function mountSidePanel(
     for (const e of events) {
       appendRow(eventToRow(e, screenshots));
     }
+  }
+
+  // Backfill thumbnails for an already-rendered row when its
+  // screenshot bytes arrive after the event row was created. This
+  // happens when the SCREENSHOT_APPENDED broadcast lands AFTER the
+  // EVENT_APPENDED for the annotation that references it. The order
+  // is not guaranteed because the SW broadcasts independently for
+  // each store mutation.
+  function hydrateThumbsForScreenshot(id: string, dataUrl: string) {
+    const placeholders = eventsList.querySelectorAll<HTMLImageElement>(
+      `img.event-thumb[data-screenshot-id="${CSS.escape(id)}"]`,
+    );
+    for (const img of placeholders) {
+      if (!img.src || img.src === "" || img.src === window.location.href) {
+        img.src = dataUrl;
+      }
+    }
+    // Also re-render any rows whose images list referenced this id
+    // but had no <img> placeholder rendered (because dataUrl was
+    // missing at row-creation time).
+    let needsRerender = false;
+    for (const e of events) {
+      if (e.type === "screenshot" && e.id === id) {
+        needsRerender = true;
+        break;
+      }
+      if (e.type === "annotation" && (e.screenshot_id === id || e.element_screenshot_id === id)) {
+        needsRerender = true;
+        break;
+      }
+    }
+    if (needsRerender) renderAllEvents();
   }
 
   function appendRow(row: SidePanelEventRow) {

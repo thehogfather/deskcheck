@@ -1,19 +1,24 @@
 // Acceptance tests for feature #8 — Test Level Matrix rows #11, #12.
-// Pure unit tests for the storage.onChanged subscription helper.
+// Pure unit tests for the runtime-message subscription helper.
+//
+// After feature #5, the side panel learns about new events via runtime
+// broadcasts (`EVENT_APPENDED`, `SESSION_CLEARED`) instead of
+// chrome.storage.onChanged. This test pins that contract.
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   subscribeToEvents,
-  type OnChangedListener,
-  type StorageOnChangedApi,
+  type RuntimeMessageListener,
+  type RuntimeOnMessageApi,
   type EventsSourceCallbacks,
 } from "./sidepanel-events-source";
-import * as sessionStore from "./session-store";
-import type { TimelineEvent } from "../types";
-import { STORAGE_EVENTS } from "../constants";
+import type { Message, TimelineEvent } from "../types";
 
-function makeFakeOnChanged(): StorageOnChangedApi & { fire: (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, area?: string) => void } {
-  const listeners = new Set<OnChangedListener>();
+function makeFakeRuntime(): RuntimeOnMessageApi & {
+  fire: (msg: Message) => void;
+  listenerCount: () => number;
+} {
+  const listeners = new Set<RuntimeMessageListener>();
   return {
     addListener(l) {
       listeners.add(l);
@@ -21,8 +26,13 @@ function makeFakeOnChanged(): StorageOnChangedApi & { fire: (changes: Record<str
     removeListener(l) {
       listeners.delete(l);
     },
-    fire(changes, area = "local") {
-      for (const l of listeners) l(changes, area);
+    fire(msg) {
+      for (const l of listeners) {
+        l(msg, {} as chrome.runtime.MessageSender, () => {});
+      }
+    },
+    listenerCount() {
+      return listeners.size;
     },
   };
 }
@@ -38,14 +48,14 @@ function ev(seq: number, type: TimelineEvent["type"] = "console_error"): Timelin
   } as TimelineEvent;
 }
 
-describe("subscribeToEvents append delta (matrix #11, #12)", () => {
-  let api: ReturnType<typeof makeFakeOnChanged>;
+describe("subscribeToEvents runtime broadcasts (matrix #11, #12)", () => {
+  let api: ReturnType<typeof makeFakeRuntime>;
   let cb: EventsSourceCallbacks;
   let appended: TimelineEvent[][];
   let resets: TimelineEvent[][];
 
   beforeEach(() => {
-    api = makeFakeOnChanged();
+    api = makeFakeRuntime();
     appended = [];
     resets = [];
     cb = {
@@ -58,96 +68,50 @@ describe("subscribeToEvents append delta (matrix #11, #12)", () => {
     };
   });
 
-  it("fires onAppend with the delta when length grows", () => {
-    subscribeToEvents(cb, {
-      onChanged: api,
-      initial: [ev(1), ev(2), ev(3)],
-    });
-    api.fire({
-      [STORAGE_EVENTS]: {
-        oldValue: [ev(1), ev(2), ev(3)],
-        newValue: [ev(1), ev(2), ev(3), ev(4)],
-      },
-    });
+  it("fires onAppend with the broadcast event", () => {
+    subscribeToEvents(cb, { onMessage: api });
+    api.fire({ type: "EVENT_APPENDED", event: ev(1) });
     expect(appended).toHaveLength(1);
     expect(appended[0]).toHaveLength(1);
-    expect(appended[0][0].seq).toBe(4);
+    expect(appended[0][0].seq).toBe(1);
     expect(resets).toHaveLength(0);
   });
 
-  it("fires onAppend with multiple new events when several appended at once", () => {
-    subscribeToEvents(cb, { onChanged: api, initial: [ev(1)] });
-    api.fire({
-      [STORAGE_EVENTS]: {
-        oldValue: [ev(1)],
-        newValue: [ev(1), ev(2), ev(3)],
-      },
-    });
-    expect(appended[0].map((e) => e.seq)).toEqual([2, 3]);
+  it("fires onAppend repeatedly for sequential broadcasts", () => {
+    subscribeToEvents(cb, { onMessage: api });
+    api.fire({ type: "EVENT_APPENDED", event: ev(1) });
+    api.fire({ type: "EVENT_APPENDED", event: ev(2) });
+    api.fire({ type: "EVENT_APPENDED", event: ev(3) });
+    expect(appended).toHaveLength(3);
+    expect(appended.map((batch) => batch[0].seq)).toEqual([1, 2, 3]);
   });
 
-  it("fires onReset when newValue.length < lastSeenLength", () => {
-    subscribeToEvents(cb, { onChanged: api, initial: [ev(1), ev(2), ev(3)] });
-    api.fire({
-      [STORAGE_EVENTS]: {
-        oldValue: [ev(1), ev(2), ev(3)],
-        newValue: [ev(1)],
-      },
-    });
-    expect(resets).toHaveLength(1);
-    expect(resets[0]).toHaveLength(1);
-  });
-
-  it("fires onReset when newValue is undefined (key removed)", () => {
-    subscribeToEvents(cb, { onChanged: api, initial: [ev(1), ev(2)] });
-    api.fire({
-      [STORAGE_EVENTS]: { oldValue: [ev(1), ev(2)], newValue: undefined },
-    });
+  it("fires onReset on SESSION_CLEARED", () => {
+    subscribeToEvents(cb, { onMessage: api });
+    api.fire({ type: "SESSION_CLEARED" });
     expect(resets).toHaveLength(1);
     expect(resets[0]).toEqual([]);
   });
 
-  it("ignores changes to unrelated keys", () => {
-    subscribeToEvents(cb, { onChanged: api, initial: [] });
+  it("ignores unrelated message types", () => {
+    subscribeToEvents(cb, { onMessage: api });
+    api.fire({ type: "GET_SESSION_STATE" });
+    api.fire({ type: "PAUSE_SESSION" });
     api.fire({
-      some_other_key: { oldValue: 1, newValue: 2 },
+      type: "PICK_ELEMENT_RESULT",
+      element: null,
+      devicePixelRatio: 1,
     });
     expect(appended).toHaveLength(0);
     expect(resets).toHaveLength(0);
   });
 
-  it("ignores changes from a non-local storage area", () => {
-    subscribeToEvents(cb, { onChanged: api, initial: [] });
-    api.fire(
-      { [STORAGE_EVENTS]: { oldValue: [], newValue: [ev(1)] } },
-      "sync",
-    );
-    expect(appended).toHaveLength(0);
-  });
-
-  it("unsubscribe stops further callbacks", () => {
-    const sub = subscribeToEvents(cb, { onChanged: api, initial: [] });
+  it("unsubscribe removes the listener", () => {
+    const sub = subscribeToEvents(cb, { onMessage: api });
+    expect(api.listenerCount()).toBe(1);
     sub.unsubscribe();
-    api.fire({
-      [STORAGE_EVENTS]: { oldValue: [], newValue: [ev(1)] },
-    });
+    expect(api.listenerCount()).toBe(0);
+    api.fire({ type: "EVENT_APPENDED", event: ev(1) });
     expect(appended).toHaveLength(0);
-  });
-
-  // PRIVACY / INVARIANT: the change handler must read change.newValue
-  // DIRECTLY and never call session-store accessors. If a future
-  // refactor pushes the read into session-store.getEvents(), the
-  // append-delta optimization is silently broken.
-  it("never calls session-store accessors from the change handler", () => {
-    const getEventsSpy = vi.spyOn(sessionStore, "getEvents");
-    const getSessionSpy = vi.spyOn(sessionStore, "getSession");
-    const getScreenshotsSpy = vi.spyOn(sessionStore, "getScreenshots");
-    subscribeToEvents(cb, { onChanged: api, initial: [] });
-    api.fire({
-      [STORAGE_EVENTS]: { oldValue: [], newValue: [ev(1), ev(2)] },
-    });
-    expect(getEventsSpy).not.toHaveBeenCalled();
-    expect(getSessionSpy).not.toHaveBeenCalled();
-    expect(getScreenshotsSpy).not.toHaveBeenCalled();
   });
 });
