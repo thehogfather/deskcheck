@@ -18,11 +18,11 @@ Load the extension: `chrome://extensions` → enable Developer mode → Load unp
 
 Three components, all vanilla TypeScript (no framework):
 
-- **Service worker** (`src/background/`) — session lifecycle, chrome.debugger for console/network capture, screenshots, storage, export
-- **Content script** (`src/content/`) — DOM event recording, floating annotation widget (Shadow DOM), element picker
-- **Popup** (`src/popup/`) — start/stop session, screenshot, download
+- **Service worker** (`src/background/`) — session lifecycle, chrome.debugger for console/network capture, screenshots, storage, export, side panel registration
+- **Content script** (`src/content/`) — DOM event recording, element picker overlay (Shadow DOM). Triggered on demand by the side panel — no in-page widget
+- **Side panel** (`src/sidepanel/`) — primary UI: start/pause/stop, live event feed, annotation textarea, element picker trigger, screenshot button, PII mode selector, session metrics, first-run notice, pre-export reminder. Replaces the legacy popup
 
-Shared modules in `src/lib/`: session storage, debugger CDP client, exporter, DOM utilities.
+Shared modules in `src/lib/`: session storage, debugger CDP client, exporter, DOM utilities, side panel render/storage/events-source helpers.
 
 ## Export Schema
 

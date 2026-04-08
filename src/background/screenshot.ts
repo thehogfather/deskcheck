@@ -20,10 +20,24 @@ export function canCaptureRecordedTab(
   return true;
 }
 
+export interface TakeScreenshotOptions {
+  /**
+   * When false, the screenshot is captured and stored in the
+   * screenshots map but no standalone `screenshot` timeline event is
+   * appended. Used for annotation-attached screenshots so the timeline
+   * shows a single annotation row (with the image inline) rather than
+   * a `screenshot` event followed by an `annotation` event referencing
+   * the same image. Defaults to true.
+   */
+  emitTimelineEvent?: boolean;
+}
+
 export async function takeScreenshot(
   activeTabId: number,
   trigger: ScreenshotEvent["trigger"],
+  options: TakeScreenshotOptions = {},
 ): Promise<{ id: string; dataUrl: string } | null> {
+  const { emitTimelineEvent = true } = options;
   try {
     const tab = await chrome.tabs.get(activeTabId);
 
@@ -40,15 +54,17 @@ export async function takeScreenshot(
     const id = `ss_${Date.now()}`;
     await storeScreenshot(id, dataUrl);
 
-    await appendEvent({
-      timestamp: new Date().toISOString(),
-      type: "screenshot",
-      id,
-      file: `screenshots/${id}.png`,
-      viewport: { width: tab.width ?? 0, height: tab.height ?? 0 },
-      trigger,
-      page_url: tab.url ?? "",
-    });
+    if (emitTimelineEvent) {
+      await appendEvent({
+        timestamp: new Date().toISOString(),
+        type: "screenshot",
+        id,
+        file: `screenshots/${id}.png`,
+        viewport: { width: tab.width ?? 0, height: tab.height ?? 0 },
+        trigger,
+        page_url: tab.url ?? "",
+      });
+    }
     return { id, dataUrl };
   } catch (e) {
     console.error("[DeskCheck] Screenshot failed:", e);

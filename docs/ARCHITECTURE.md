@@ -5,38 +5,47 @@ Chrome extension (Manifest V3) that records debugging sessions for AI-assisted b
 ## Components
 
 ```
-┌─────────────┐     chrome.runtime.sendMessage     ┌──────────────────┐
-│   Popup     │ ──────────────────────────────────► │  Service Worker  │
-│ (start only)│                                     │  (background)    │
-└─────────────┘                                     │                  │
-                                                    │  - Session mgmt  │
-┌─────────────┐     chrome.runtime.sendMessage      │  - CDP client    │
-│  Content    │ ◄──────────────────────────────────► │  - Screenshots   │
-│  Script     │                                     │  - Export (zip)  │
-│             │                                     │  - Storage I/O   │
-│ - Recorder  │     chrome.storage.local            └──────┬───────────┘
-│ - Widget    │ ◄──────────────────────────────────────────►│
-│ - Picker    │                                             │
-└─────────────┘                                    chrome.debugger (CDP)
-                                                            │
-                                                    ┌───────▼───────┐
-                                                    │  Target Tab   │
-                                                    │  (observed)   │
-                                                    └───────────────┘
+┌──────────────┐    chrome.runtime.sendMessage     ┌──────────────────┐
+│  Side Panel  │ ─────────────────────────────────► │  Service Worker  │
+│  (chrome UI) │ ◄───── chrome.storage.onChanged    │  (background)    │
+│              │                                    │                  │
+│ - Event feed │                                    │  - Session mgmt  │
+│ - Controls   │                                    │  - CDP client    │
+│ - Metrics    │                                    │  - Screenshots   │
+└──────────────┘                                    │  - Export (zip)  │
+                                                    │  - Storage I/O   │
+┌──────────────┐    chrome.runtime.sendMessage      │  - sidePanel reg │
+│  Content     │ ◄────────────────────────────────► └──────┬───────────┘
+│  Script      │                                           │
+│              │    chrome.storage.local                   │
+│ - Recorder   │ ◄────────────────────────────────────────►│
+│ - Widget     │                                           │
+│ - Picker     │                                  chrome.debugger (CDP)
+└──────────────┘                                           │
+                                                   ┌───────▼───────┐
+                                                   │  Target Tab   │
+                                                   │  (observed)   │
+                                                   └───────────────┘
 ```
 
 ### Service Worker (`src/background/`)
-- **service-worker.ts** — Message router, session lifecycle, keyboard shortcuts, export orchestration. Restores state on wake.
+- **service-worker.ts** — Message router, session lifecycle, keyboard shortcuts, export orchestration. Restores state on wake. **Side panel uses a bind-on-open model**: the manifest has NO `side_panel.default_path` (a global default would cause Chrome to create a single panel instance that ignores per-tab `setOptions` and never hides on tab switch — tracked as [GoogleChrome/chrome-extensions-samples#987](https://github.com/GoogleChrome/chrome-extensions-samples/issues/987)). The panel HTML is bundled via `vite-plugin-web-extension`'s `additionalInputs` option and declared as a `web_accessible_resource`. At top level the SW calls `setPanelBehavior({ openPanelOnActionClick: false })` so Chrome forwards toolbar clicks to our `chrome.action.onClicked` handler. The handler is SYNCHRONOUS (not async) and fires both `chrome.sidePanel.setOptions({ tabId, path: SIDEPANEL_PATH, enabled: true })` and `chrome.sidePanel.open({ tabId })` inside the gesture window, without awaiting either — Chrome processes the IPCs in order, so the per-tab override is established before the panel opens, and both calls get a valid gesture token. Only then, in an async IIFE after the gesture expires, the SW walks every OTHER tab and calls `setOptions({ tabId, enabled: false })` (no path — fresh per-tab entries with a matching path hit the same #987 trap) so switching away from the bound tab hides the panel and returning to it shows the panel again. `START_SESSION` and `STOP_SESSION` never touch `setOptions`; the panel's home tab is decided at click time, not at recording start time. If a session is active and the user clicks the action on a different tab, the handler routes them back to the recording tab (`chrome.tabs.update(activeTabId, { active: true })`) rather than migrating the panel. When the bound tab is closed we just drop the `panelBoundTabId` — Chrome auto-cleans per-tab entries for removed tabs. The SW also listens for `chrome.tabs.onCreated` and proactively disables the panel on new tabs while a binding is active. Pinned by `tests/service-worker-setpanel.test.ts` (unit) and `e2e/sidepanel-debug.spec.ts` (end-to-end visibility verification via the sidepanel page's own `document.visibilityState`).
 - **screenshot.ts** — `chrome.tabs.captureVisibleTab` wrapper scoped to the recorded tab. Exports a pure `canCaptureRecordedTab()` gate that refuses capture if the recorded tab is not currently active, so mid-session tab switches cannot leak content from an unrelated tab.
 
 ### Content Script (`src/content/`)
-- **index.ts** — Injection guard, message listener, session state sync with fallbacks (message + storage.onChanged).
+- **index.ts** — Injection guard, message listener, session state sync with fallbacks (message + storage.onChanged). Also handles `START_ELEMENT_PICKER` from the side panel and replies via `PICK_ELEMENT_RESULT` (containing the picked `ElementInfo` plus `window.devicePixelRatio` for crop math).
 - **recorder.ts** — DOM event recording (click, input, scroll, resize, SPA navigation). Input events are debounced (800ms) to capture final values, not keystrokes.
-- **widget.ts** — Annotation overlay (closed Shadow DOM). Contains all session controls: annotation textarea, element picker, screenshot, stop & download.
-- **element-picker.ts** — Interactive element selector with closed Shadow DOM overlay.
+- **element-picker.ts** — Interactive element selector with closed Shadow DOM overlay. Triggered on demand by the side panel; not exposed via any in-page UI of its own.
 
-### Popup (`src/popup/`)
-Minimal session-start trigger. Shows "Start Session" when idle, "Download Report" if an unexported session exists. Auto-closes on session start.
+There is **no in-page widget**. Earlier versions hosted a floating annotation panel on the recorded tab; that surface was removed in 0.4.0 in favor of the side panel, which lives in the browser chrome and never overlaps with page content.
+
+### Side Panel (`src/sidepanel/`)
+Chrome side panel UI — the only DeskCheck surface other than the in-page recorder + element picker. Opens when the user clicks the toolbar action and is **bound to the tab it was summoned from**. Switching to another tab closes it, switching back reopens it — this is true whether or not a recording session is active. Clicking the action on a different tab rebinds the panel to that tab (unless a session is active, in which case the click routes the user back to the recording tab). Replaces both the legacy browser-action popup AND the legacy in-page widget.
+
+- **index.html** — Minimal shell hosting `#sidepanel-root`.
+- **sidepanel-entry.ts** — Production entry point that wires real Chrome APIs (`chrome.runtime.sendMessage`, `chrome.runtime.onMessage`, `chrome.storage.onChanged`, `chrome.windows.onFocusChanged`, `chrome.storage.session`) into the glue layer.
+- **sidepanel.ts** — Glue layer (`mountSidePanel`). Two-region flex layout: scrollable event feed above, sticky controls form below. 2-state machine (`idle` | `active`) plus a `paused` flag. Hosts: start / pause / stop, annotation textarea, "Pick element" trigger, screenshot button, PII mode selector, session metrics (with paused badge), first-run notice, inline pre-export reminder. **Never imports privileged Chrome capture APIs** (verified by `tests/sidepanel-no-direct-capture.test.ts`); all capture goes through the service worker. Uses `image-utils.cropScreenshot` to crop element-only screenshots client-side at annotation submit time, with the recorded tab's `devicePixelRatio` carried in via `PICK_ELEMENT_RESULT`.
+- **sidepanel.css** — Dark theme palette (`slate-900` background, `blue-500` accent, per-row accents for danger/warning/annotation/screenshot rows). Thumbnails are `100px` square (`object-fit: cover`) and visible by default — there is no click-to-reveal gate (the side panel lives in the user's own browser chrome, where the user already controls visibility during screen sharing).
 
 ### Shared Libraries (`src/lib/`)
 - **session-store.ts** — chrome.storage.local CRUD for sessions, events, screenshots. `getSession` back-fills `pii_mode` to `"full"` for legacy sessions.
@@ -44,8 +53,12 @@ Minimal session-start trigger. Shows "Start Session" when idle, "Download Report
 - **agents-doc.ts** — Single source of truth for the export schema version and the `agents.md` reference doc shipped inside every zip. Includes a compile-time exhaustiveness helper (`assertExhaustiveEventTypes`) so adding a new `TimelineEvent` variant fails `make typecheck` until the doc is updated.
 - **debugger-client.ts** — CDP v1.3 client. Subscribes to Network, Log, Runtime domains. Filters extension URLs. Sanitizes sensitive headers (Authorization, Cookie, etc.) before storing.
 - **session-metrics.ts** — Pure functions for session metrics: size estimation, duration/bytes formatting, threshold checking. Polled by widget every 2s via `GET_SESSION_METRICS`.
-- **privacy.ts** — Pure module: single source of truth for the in-widget first-run notice bullets, the pre-export reminder line, and the `PRIVACY.md` template shipped in every export. Imported by both `widget.ts` and `exporter.ts` so the copy cannot drift.
+- **privacy.ts** — Pure module: single source of truth for the in-widget first-run notice bullets, the pre-export reminder line, and the `PRIVACY.md` template shipped in every export. Imported by `widget.ts`, `exporter.ts`, and `privacy-notice.ts` so the copy cannot drift.
+- **privacy-notice.ts** — Pure module: `buildFirstRunNoticeModel()` view-model shared between the in-page widget and the side panel so both surfaces render the same first-run bullets. Pinned by `privacy-notice.test.ts` against `PRIVACY_NOTICE_BULLETS`.
 - **privacy-store.ts** — `chrome.storage.local` wrapper for the first-run notice flag. Read failures default to "not seen" so the notice errs on the side of being shown; write failures are logged but not thrown.
+- **sidepanel-render.ts** — Pure view-model module for the side panel event feed. Maps each `TimelineEvent` variant to a `SidePanelEventRow` with timestamp, label, detail, accent, and **privacy-safe** screenshot fields (`screenshotPlaceholderId` + `screenshotDataUrl` as a string field — never embedded in HTML). Exports `assertExhaustiveSidePanelEvent` for compile-time exhaustiveness, mirroring `agents-doc.assertExhaustiveEventTypes`. Adding a new `TimelineEvent` variant fails `make typecheck` until the side panel renderer handles it.
+- **sidepanel-storage.ts** — Per-window scroll position persistence backed by `chrome.storage.session` (in-memory, cleared on browser restart so stale scroll positions don't survive). Rejects `WINDOW_ID_NONE` (-1) and clamps negative values. Injectable `SessionStorageApi` seam for tests.
+- **sidepanel-events-source.ts** — Wraps `chrome.storage.onChanged` to expose a clean `subscribeToEvents` API for the side panel. Reads `change.newValue` directly (never calls `session-store` accessors — pinned by spy test). Computes append-only deltas; falls back to a full reset if the events array shrinks, becomes undefined, or is replaced with the same length (defensive against partial writes).
 - **pii-modes.ts** — Pure module for PII capture mode policy. **PRIVACY-CRITICAL**: `capturePayloadForMode` is the only code path that reads `target.value` for input events. Defines the `PiiCaptureMode` (`full` | `metadata` | `none`) and metadata extraction. In metadata mode, records exact counts for each character class (`letter_count`, `digit_count`, `emoji_count`, `whitespace_count`, `special_count`) plus `length` and `word_count` — enough for an engineer to reconstruct a realistic repro input without the raw value.
 - **dom-utils.ts** — CSS selector generation, element info extraction, throttle utility.
 - **image-utils.ts** — Screenshot cropping for element annotations.
@@ -55,12 +68,14 @@ Discriminated union for timeline events: interaction, viewport_resize, network_e
 
 ## Data Flow
 
-1. User clicks "Start Session" in popup
-2. Service worker creates session in storage, attaches CDP debugger, injects content script
-3. Content script starts recorder (DOM events) + shows widget overlay
-4. Events flow: content script → `RECORD_EVENT` message → service worker → `appendEvent()` → storage
+1. User clicks the toolbar action → `chrome.action.onClicked` fires (because `openPanelOnActionClick` is off) → the handler fires `chrome.sidePanel.setOptions({ tabId, path, enabled: true })` + `chrome.sidePanel.open({ tabId })` synchronously within the user-gesture window. Then, in an async IIFE, it walks every other tab and disables the panel there with `setOptions({ tabId, enabled: false })`. From this point the panel is visible only on that tab; switching away hides it, returning shows it again.
+2. User clicks "Start session" in the side panel → service worker creates session in storage, attaches CDP debugger, injects content script. The panel binding is unchanged — `START_SESSION` is a capture-only transition.
+3. Content script starts recorder (DOM events) + shows in-page widget overlay
+4. Events flow: content script → `RECORD_EVENT` message → service worker → `appendEvent()` → `chrome.storage.local`
 5. CDP events (network errors, console, exceptions) flow directly from debugger client → storage
-6. User clicks "Stop & Download" in widget → service worker ends session, builds zip, triggers download, clears storage
+6. **Live event feed**: side panel subscribes to `chrome.storage.onChanged` filtered to the events key. Each delta appends new rows to the feed without re-rendering existing rows (DOM nodes are preserved by identity)
+7. **Cross-window**: switching focus to another window fires `chrome.windows.onFocusChanged` → side panel re-fetches `GET_SESSION_STATE` so each window's panel reflects the global session
+8. User clicks "Stop & download" in the side panel (or in the in-page widget) → service worker ends session, builds zip, triggers download, clears storage. The side panel observes `session.end_time` flipping via storage onChanged and transitions to idle (revealed screenshot thumbnails are unmounted from the DOM)
 
 ## Export Schema (v1.1.0)
 
@@ -92,6 +107,8 @@ from the metadata alone. In `none` mode, no input events are emitted.
 ## Security
 
 - A session is bound to the **single tab** it started on. DOM events come from the content script injected into that tab, CDP events come from the debugger attached to that tab, and `takeScreenshot()` refuses to capture unless that tab is currently active (`canCaptureRecordedTab`). This prevents a mid-session tab switch from silently leaking content from an unrelated tab into the export.
+- **Side panel never captures directly.** The side panel UI is forbidden from importing `chrome.tabs.captureVisibleTab`, `chrome.debugger`, or `chrome.scripting`. Pinned by a grep test (`tests/sidepanel-no-direct-capture.test.ts`) so a future shortcut cannot bypass the service-worker chokepoint.
+- **Annotation-attached screenshots are stored once.** When the user submits an annotation, the SW captures the full-page screenshot (and crops the picked element if any) but does NOT append a separate `screenshot` timeline event for either image. The screenshots live in the screenshots map and are rendered inline on the annotation row in the side panel feed. This prevents "screenshot, screenshot, annotation" triple-rows in the timeline for a single user action.
 - Sensitive headers (Authorization, Cookie, Set-Cookie, Proxy-Authorization, X-Api-Key) are stripped from network error events before storage
 - Widget and element picker use closed Shadow DOM
 - Password fields are masked as `[password]` in `full` mode; in `metadata` mode only their length/char-class flags are recorded; in `none` mode they are not recorded at all
@@ -114,6 +131,7 @@ from the metadata alone. In `none` mode, no input events are emitted.
 
 | Version | Changes |
 |---------|---------|
+| 0.4.0   | Side panel UX (feature #8): primary UI moves from the browser-action popup into a Chrome side panel (`chrome.sidePanel`). The panel uses a **bind-on-open** model carefully structured around the Chrome sidePanel API's behaviour documented in [chrome-extensions-samples#987](https://github.com/GoogleChrome/chrome-extensions-samples/issues/987): the manifest has NO `side_panel.default_path` (a global default would cause Chrome to create a single panel instance that ignores per-tab `setOptions` and never hides on tab switch). The panel HTML is bundled via `vite-plugin-web-extension`'s `additionalInputs` option and declared as a `web_accessible_resource`. The SW calls `setPanelBehavior({ openPanelOnActionClick: false })` so Chrome forwards toolbar clicks to a synchronous `chrome.action.onClicked` handler, which fires both `setOptions({ tabId, path, enabled: true })` and `sidePanel.open({ tabId })` inside the user-gesture window without awaiting either — Chrome processes the IPCs in order, so the per-tab override is registered before the panel opens, and both calls retain a valid gesture. An async IIFE afterwards walks every OTHER tab and calls `setOptions({ tabId, enabled: false })` (no path) so switching away from the bound tab hides the panel and returning restores it. Action clicks during an active session route the user back to the recording tab. `START_SESSION` and `STOP_SESSION` don't touch `setOptions`; binding is decided at click time, not at recording start time. When the bound tab is closed, we just drop `panelBoundTabId` — Chrome auto-cleans per-tab entries. New tabs created during a binding are proactively disabled via `chrome.tabs.onCreated`. Two-region layout — scrollable live event feed above, sticky controls form below — with dark-theme palette. New pure modules: `sidepanel-render.ts` (exhaustive `eventToRow` mapper mirroring `agents-doc.assertExhaustiveEventTypes`), `sidepanel-storage.ts` (per-window scroll persistence in `chrome.storage.session`), `sidepanel-events-source.ts` (append-only delta subscription that reads `change.newValue` directly and never calls store accessors), `privacy-notice.ts` (single source of truth for the first-run notice copy). The side panel hosts: start / pause / stop, annotation textarea, "Pick element" trigger, screenshot button, PII mode selector, session metrics with paused badge, first-run notice, inline pre-export reminder. Element picker round-trips via `START_ELEMENT_PICKER`/`PICK_ELEMENT_RESULT` messages between the side panel and the recorded tab's content script; element-screenshot cropping happens client-side in the side panel at annotation submit time, using the recorded tab's `devicePixelRatio` from the pick result. Annotation-attached screenshots are stored once and rendered inline on the annotation row instead of producing separate `screenshot` timeline events. Thumbnails are 100px square and visible by default. **Privacy hardening**: the side panel never imports `captureVisibleTab`/`debugger`/`scripting` (grep-pinned by `tests/sidepanel-no-direct-capture.test.ts`). The legacy `src/popup/` and `src/content/widget.ts` surfaces are deleted; manifest no longer declares `default_popup` or the `toggle-annotation` keyboard shortcut. SW gains a transient in-memory `paused` flag (gates DOM + CDP events; manual screenshot/annotation actions still work while paused). |
 | schema 1.1.0 | Added `agents.md` self-documenting schema reference inside every export zip (`src/lib/agents-doc.ts`). Compile-time exhaustiveness guard keeps the doc in lockstep with `TimelineEvent`. PII capture modes (feature #4): per-session Full/Metadata/None selector in the popup controls how form inputs are recorded. New pure module `src/lib/pii-modes.ts` is the single chokepoint that reads `target.value`. `SessionMetadata.pii_mode` and `InteractionEvent.value_metadata` added; metadata mode records exact per-class counts (letter/digit/emoji/whitespace/special) for repro fidelity. |
 | (unreleased) | Sensitive data warnings (feature #2): first-run notice in the widget, pre-export reminder panel with explicit Keep-recording cancel, and a `PRIVACY.md` shipped in every export. New `src/lib/privacy.ts` (pure copy + decision helper) and `src/lib/privacy-store.ts` (storage wrapper). Single source of truth for notice copy across the widget and the exporter. Tightened `takeScreenshot()` to refuse capture when the recorded tab is not the currently-active tab (new pure `canCaptureRecordedTab()` gate), so mid-session tab switches cannot leak content from an unrelated tab into the export. |
 | 0.3.0   | Consolidated UI into widget overlay, debounced input recording, security hardening, new icon |

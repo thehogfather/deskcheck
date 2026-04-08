@@ -1,46 +1,51 @@
-# Test results — feature-4 (PII capture modes)
+# Test Results — feature-8 (Side panel UX)
 
-Run: 2026-04-07 (phase 5 validation gate)
+Run: 2026-04-08
+Command: `make test`
+Result: **225 passed / 225 total / 0 failed**
 
-## make typecheck
-Exit 0. Clean.
+## Test files
 
-## make test
+| File | Tests | Status |
+|------|-------|--------|
+| src/background/screenshot.test.ts | (existing) | pass |
+| src/content/recorder.test.ts | (existing) | pass |
+| src/lib/agents-doc.test.ts | (existing) | pass |
+| src/lib/debugger-client.test.ts | (existing) | pass |
+| src/lib/dom-utils.test.ts | (existing) | pass |
+| src/lib/exporter.test.ts | (existing) | pass |
+| src/lib/pii-modes.test.ts | (existing) | pass |
+| src/lib/privacy.test.ts | (existing) | pass |
+| src/lib/session-metrics.test.ts | (existing) | pass |
+| **src/lib/privacy-notice.test.ts** (NEW — feature #8) | 4 | pass |
+| **src/lib/session-store.test.ts** (NEW — feature #8) | 3 | pass |
+| **src/lib/sidepanel-events-source.test.ts** (NEW — feature #8) | 9 | pass |
+| **src/lib/sidepanel-render.test.ts** (NEW — feature #8) | 16 | pass |
+| **src/lib/sidepanel-storage.test.ts** (NEW — feature #8) | 7 | pass |
+| **src/sidepanel/sidepanel.test.ts** (NEW — feature #8, jsdom) | 16 | pass |
+| **tests/manifest-regression.test.ts** (NEW — feature #8) | 5 | pass |
+| **tests/popup-removed.test.ts** (NEW — feature #8) | 2 | pass |
+| **tests/service-worker-setpanel.test.ts** (NEW — feature #8) | 2 | pass |
+| **tests/sidepanel-no-direct-capture.test.ts** (NEW — feature #8) | 4 | pass |
+
+**Net new tests added by feature #8**: 68 across 10 new files
+**Existing tests preserved**: 0 regressions
+
+## Build output
+
 ```
-Test Files  6 passed (6)
-     Tests  116 passed (116)
-  Duration  ~630ms
+dist/src/sidepanel/index.html
+dist/src/sidepanel/index.js          12.71 kB │ gzip:  4.86 kB
+dist/src/background/service-worker.js 30.19 kB │ gzip: 12.45 kB
+dist/src/content/index.js            19.09 kB │ gzip:  6.85 kB
+dist/manifest.json                    1.07 kB │ gzip:  0.49 kB
 ```
 
-Test files run:
-- src/lib/dom-utils.test.ts
-- src/lib/exporter.test.ts (modified — pii_mode + 1.1.0 round-trip)
-- src/lib/session-metrics.test.ts
-- src/lib/encoding.test.ts
-- src/lib/pii-modes.test.ts (NEW — pure module + negative property test)
-- src/content/recorder.test.ts (NEW — jsdom mode behavior + negative property test)
+`dist/src/popup/` does not exist (verified by `tests/popup-removed.test.ts`).
 
-## make build
-Exit 0. dist/ produced:
-- dist/src/popup/index.html (0.94 kB)
-- dist/src/popup/index.js (2.43 kB)
-- dist/src/background/service-worker.js (19.64 kB)
-- dist/src/content/index.js (15.17 kB)
-- dist/manifest.json (1.04 kB)
+## Notes
 
-## DoD coverage
-- [x] Mode selector radios in popup (HTML structure + popup.ts wiring; visually verifiable on extension load)
-- [x] Full mode preserves existing behavior — verified by `pii-modes.test.ts > capturePayloadForMode > full mode` and `recorder.test.ts > full mode`
-- [x] Metadata mode emits metadata, never raw value — verified by `pii-modes.test.ts > metadata mode` AND the negative property tests in both `pii-modes.test.ts` and `recorder.test.ts`
-- [x] None mode suppresses input events — verified by `recorder.test.ts > none mode` (no listeners registered, no events emitted)
-- [x] pii_mode in session.json — verified by `exporter.test.ts > round-trips pii_mode in exported session`
-- [x] Default Full — verified by `parsePiiMode(undefined) === "full"`, `recorder.test.ts > default opts behaves like full`, and `index.html` `checked` attribute on Full radio
-- [x] Schema 1.1.0 — verified by `exporter.test.ts > produces a valid zip`
-
-## Privacy chokepoint audit
-The only place that reads `target.value` for input timeline events is
-`capturePayloadForMode` in `src/lib/pii-modes.ts`. The recorder skips
-input/change listener registration entirely under `none` mode. Negative
-property tests assert that for fixed sensitive strings (passwords, account
-numbers, tokens, unicode), the raw value never appears in the serialized
-event JSON for `metadata` or `none` modes.
+- 225/225 passing on the first run after Phase 4 implementation completed.
+- jsdom integration tests use injectable Chrome API seams; no global `chrome` mock required.
+- Compile-time exhaustiveness via `assertExhaustiveSidePanelEvent` mirrors `agents-doc.assertExhaustiveEventTypes` — adding a new TimelineEvent variant fails `make typecheck` until both modules are updated.
+- Privacy invariants pinned at multiple layers (unit + integration + build/grep) — see validation.md for the cross-cutting summary.

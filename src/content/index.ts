@@ -1,7 +1,7 @@
 import { Message, TimelineEventInput } from "../types";
 import { STORAGE_SESSION } from "../constants";
 import { startRecording } from "./recorder";
-import { showWidget, hideWidget, focusWidget } from "./widget";
+import { startPicker } from "./element-picker";
 import {
   DEFAULT_PII_MODE,
   parsePiiMode,
@@ -18,6 +18,7 @@ if (!(window as any)[GUARD]) {
 function init() {
   let stopRecording: (() => void) | null = null;
   let isRecording = false;
+  let cancelPicker: (() => void) | null = null;
 
   let sendFailCount = 0;
   function sendEvent(event: TimelineEventInput) {
@@ -36,7 +37,6 @@ function init() {
     if (isRecording) return;
     isRecording = true;
     stopRecording = startRecording(sendEvent, { piiMode });
-    showWidget();
   }
 
   function stopSession() {
@@ -44,19 +44,43 @@ function init() {
     isRecording = false;
     stopRecording?.();
     stopRecording = null;
-    hideWidget();
+    cancelPicker?.();
+    cancelPicker = null;
   }
 
-  // ── Primary: listen for messages from service worker ──
-  // SESSION_STARTED is only sent to the active tab, so this is already scoped
+  // ── Element picker bridge ──
+  // The side panel triggers the picker via START_ELEMENT_PICKER. The
+  // picker overlay lives in the content script (closed Shadow DOM)
+  // because it must hit-test elements on the page. Result is sent back
+  // via chrome.runtime.sendMessage so the side panel can listen.
+  function handleStartPicker() {
+    cancelPicker?.();
+    cancelPicker = startPicker((info) => {
+      cancelPicker = null;
+      const result: Message = {
+        type: "PICK_ELEMENT_RESULT",
+        element: info,
+        devicePixelRatio: window.devicePixelRatio,
+      };
+      // Fire-and-forget; the side panel listens via runtime.onMessage.
+      chrome.runtime.sendMessage(result).catch(() => {
+        // Side panel may have closed mid-pick — drop silently.
+      });
+    });
+  }
+
+  // ── Primary: listen for messages from service worker / side panel ──
 
   chrome.runtime.onMessage.addListener((msg: Message) => {
     if (msg.type === "SESSION_STARTED") {
       startSession(parsePiiMode(msg.piiMode));
     } else if (msg.type === "SESSION_STOPPED") {
       stopSession();
-    } else if (msg.type === "FOCUS_ANNOTATION") {
-      focusWidget();
+    } else if (msg.type === "START_ELEMENT_PICKER") {
+      handleStartPicker();
+    } else if (msg.type === "CANCEL_ELEMENT_PICKER") {
+      cancelPicker?.();
+      cancelPicker = null;
     }
   });
 
@@ -67,8 +91,6 @@ function init() {
     .sendMessage({ type: "GET_SESSION_STATE" } as Message)
     .then(async (response) => {
       if (response?.recording) {
-        // Verify we're on the right tab by checking if the service worker
-        // will accept our events (it filters by sender.tab.id)
         startSession(parsePiiMode(response.piiMode));
       }
     })
@@ -77,7 +99,6 @@ function init() {
     });
 
   // ── Fallback 2: watch storage for session changes ──
-  // When a new session appears, only start if this tab matches
 
   chrome.storage.onChanged.addListener(async (changes, area) => {
     if (area !== "local") return;
@@ -90,10 +111,6 @@ function init() {
       } else if (!newSession && oldSession && isRecording) {
         stopSession();
       }
-      // For new sessions, don't auto-start from storage.onChanged.
-      // The service worker sends SESSION_STARTED only to the target tab,
-      // and programmatically injects the content script there.
-      // This prevents other tabs from activating.
     }
   });
 }
