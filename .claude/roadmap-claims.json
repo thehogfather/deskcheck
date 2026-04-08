@@ -46,6 +46,14 @@
       "branch": "feature/feature-8",
       "status": "completed",
       "released_at": "2026-04-07T23:16:57.678001+00:00"
+    },
+    {
+      "feature_id": "feature-9",
+      "feature_title": "Automatic tab group for active DeskCheck tabs",
+      "claimed_by": "orch-20260408-222003-4289",
+      "claimed_at": "2026-04-08T22:20:13.729588+00:00",
+      "branch": "feature/feature-9",
+      "status": "active"
     }
   ]
 }
