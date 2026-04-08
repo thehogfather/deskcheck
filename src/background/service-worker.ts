@@ -198,24 +198,19 @@ async function handleMessage(
 
     case "ADD_ANNOTATION": {
       if (!recording || !activeTabId) return;
-      const ss = await takeScreenshot(activeTabId, "annotation");
+      // Annotation-attached screenshots are stored but not appended as
+      // standalone timeline events — they live inline on the annotation
+      // row in the side panel. Avoids the duplicate-row noise the
+      // user reported on the first feature-8 prototype.
+      const ss = await takeScreenshot(activeTabId, "annotation", {
+        emitTimelineEvent: false,
+      });
       const tab = await chrome.tabs.get(activeTabId);
 
       let elementScreenshotId: string | undefined;
       if (msg.elementScreenshotData) {
         elementScreenshotId = `el_${Date.now()}`;
         await storeScreenshot(elementScreenshotId, msg.elementScreenshotData);
-        await appendEvent({
-          timestamp: new Date().toISOString(),
-          type: "screenshot",
-          id: elementScreenshotId,
-          file: `screenshots/${elementScreenshotId}.png`,
-          viewport: msg.element?.bounding_box
-            ? { width: msg.element.bounding_box.width, height: msg.element.bounding_box.height }
-            : { width: 0, height: 0 },
-          trigger: "annotation",
-          page_url: tab.url ?? "",
-        });
       }
 
       await appendEvent({

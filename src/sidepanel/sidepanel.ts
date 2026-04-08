@@ -151,7 +151,6 @@ export async function mountSidePanel(
   let events: TimelineEvent[] = deps.initialEvents ? [...deps.initialEvents] : [];
   let screenshots: Record<string, string> = { ...(deps.initialScreenshots ?? {}) };
   let selectedPiiMode: PiiCaptureMode = deps.initialPiiMode ?? DEFAULT_PII_MODE;
-  let revealed: Set<string> = new Set();
   let windowId: number = -1;
   let scrollDebounce: ReturnType<typeof setTimeout> | null = null;
 
@@ -428,10 +427,6 @@ export async function mountSidePanel(
 
   function transitionToIdle() {
     state = "idle";
-    // PRIVACY: clear any revealed thumbnails so prior screen-shared
-    // sessions cannot leak after the user stops recording.
-    revealed.clear();
-    unmountAllRevealedImages();
     applyStateToControls();
   }
 
@@ -457,7 +452,7 @@ export async function mountSidePanel(
 
   function appendRow(row: SidePanelEventRow) {
     const li = el("div", {
-      class: `event-row accent-${row.accent}${row.screenshotPlaceholderId ? " screenshot" : ""}`,
+      class: `event-row accent-${row.accent}${row.images.length > 0 ? " has-images" : ""}`,
       "data-seq": row.id,
     });
     const time = el("span", { class: "event-time" }, [formatEventTimestamp(row.iso)]);
@@ -467,29 +462,22 @@ export async function mountSidePanel(
     li.appendChild(label);
     if (row.detail) li.appendChild(detail);
 
-    if (row.screenshotPlaceholderId) {
-      const placeholder = el("button", {
-        class: "screenshot-placeholder",
-        "data-screenshot-id": row.screenshotPlaceholderId,
-        title: "Click to reveal screenshot",
-      }, ["[ click to reveal screenshot ]"]);
-      placeholder.addEventListener("click", () => {
-        if (!row.screenshotDataUrl) return;
-        revealed.add(row.screenshotPlaceholderId!);
+    if (row.images.length > 0) {
+      const gallery = el("div", { class: "event-thumbs" });
+      for (const image of row.images) {
+        if (!image.dataUrl) continue;
         const img = document.createElement("img");
-        img.src = row.screenshotDataUrl;
+        img.src = image.dataUrl;
         img.alt = "screenshot";
-        img.className = "screenshot-thumb";
-        placeholder.replaceWith(img);
-      });
-      li.appendChild(placeholder);
+        img.className = "event-thumb";
+        img.dataset.screenshotId = image.id;
+        gallery.appendChild(img);
+      }
+      if (gallery.children.length > 0) {
+        li.appendChild(gallery);
+      }
     }
     eventsList.appendChild(li);
-  }
-
-  function unmountAllRevealedImages() {
-    const imgs = eventsList.querySelectorAll("img");
-    imgs.forEach((img) => img.remove());
   }
 
   function autoScrollIfNeeded() {

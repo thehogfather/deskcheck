@@ -250,55 +250,69 @@ describe("live append (matrix #10)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Row #8 — placeholder by default
+// Row #8 — thumbnails visible by default (no placeholder gate)
 // ─────────────────────────────────────────────────────────────────────
 
-describe("screenshot placeholder by default (matrix #8)", () => {
-  it("screenshot event row renders a placeholder, not an <img>", async () => {
+describe("screenshot thumbnails visible by default (matrix #8)", () => {
+  it("screenshot event row renders an <img> with the data url", async () => {
     const h = makeHarness();
     h.deps.initialEvents = [ev(1, "screenshot")];
     h.deps.initialScreenshots = { ss_1: "data:image/png;base64,ZZZZ" };
     await mountSidePanel(h.deps);
 
-    const img = h.deps.root.querySelector("#events-list .event-row.screenshot img");
-    expect(img).toBeNull();
-    const placeholder = h.deps.root.querySelector("#events-list .event-row.screenshot .screenshot-placeholder");
-    expect(placeholder).not.toBeNull();
-  });
-
-  it("clicking placeholder reveals an <img src=data:...>", async () => {
-    const h = makeHarness();
-    h.deps.initialEvents = [ev(1, "screenshot")];
-    h.deps.initialScreenshots = { ss_1: "data:image/png;base64,ZZZZ" };
-    await mountSidePanel(h.deps);
-
-    const placeholder = h.deps.root.querySelector<HTMLElement>(".screenshot-placeholder");
-    placeholder!.click();
-    await new Promise((r) => setTimeout(r, 0));
-
-    const img = h.deps.root.querySelector<HTMLImageElement>("#events-list .event-row.screenshot img");
+    const img = h.deps.root.querySelector<HTMLImageElement>("#events-list .event-row.has-images .event-thumb");
     expect(img).not.toBeNull();
     expect(img!.src).toContain("data:image/png;base64,ZZZZ");
+  });
+
+  it("does not render a click-to-reveal placeholder", async () => {
+    const h = makeHarness();
+    h.deps.initialEvents = [ev(1, "screenshot")];
+    h.deps.initialScreenshots = { ss_1: "data:image/png;base64,ZZZZ" };
+    await mountSidePanel(h.deps);
+
+    expect(h.deps.root.querySelector(".screenshot-placeholder")).toBeNull();
+  });
+
+  it("annotation with both full and element screenshots renders TWO thumbnails inline", async () => {
+    const h = makeHarness();
+    h.deps.initialEvents = [
+      {
+        seq: 1,
+        timestamp: "2026-04-07T12:00:01.000Z",
+        page_url: "https://example.com/",
+        type: "annotation",
+        text: "broken",
+        screenshot_id: "ss_1",
+        element_screenshot_id: "el_1",
+      } as TimelineEvent,
+    ];
+    h.deps.initialScreenshots = {
+      ss_1: "data:image/png;base64,FULL",
+      el_1: "data:image/png;base64,EL",
+    };
+    await mountSidePanel(h.deps);
+
+    const imgs = h.deps.root.querySelectorAll<HTMLImageElement>("#events-list .event-thumb");
+    expect(imgs.length).toBe(2);
+    expect(imgs[0].src).toContain("data:image/png;base64,FULL");
+    expect(imgs[1].src).toContain("data:image/png;base64,EL");
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Row #9 — STOP_SESSION unmounts revealed thumbnails
+// Row #9 — thumbnails persist across session stop (no unmount)
 // ─────────────────────────────────────────────────────────────────────
 
-describe("revealed thumbnails removed on session stop (matrix #9)", () => {
-  it("session.end_time flipping unmounts all revealed screenshot imgs", async () => {
+describe("thumbnails persist across session end (matrix #9)", () => {
+  it("session.end_time flipping does NOT unmount visible thumbnails", async () => {
     const h = makeHarness();
     h.deps.initialEvents = [ev(1, "screenshot")];
     h.deps.initialScreenshots = { ss_1: "data:image/png;base64,ZZZZ" };
     await mountSidePanel(h.deps);
 
-    // Reveal it.
-    h.deps.root.querySelector<HTMLElement>(".screenshot-placeholder")!.click();
-    await new Promise((r) => setTimeout(r, 0));
     expect(h.deps.root.querySelectorAll("#events-list img").length).toBe(1);
 
-    // Fire a session change with end_time set.
     h.fireStorage({
       deskcheck_session: {
         oldValue: { id: "s1", end_time: null },
@@ -307,7 +321,10 @@ describe("revealed thumbnails removed on session stop (matrix #9)", () => {
     });
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(h.deps.root.querySelectorAll("#events-list img").length).toBe(0);
+    // Thumbnails remain visible — they're part of the timeline view,
+    // not transient state. The session has ended but the user may
+    // still want to inspect the captured events before exporting.
+    expect(h.deps.root.querySelectorAll("#events-list img").length).toBe(1);
   });
 });
 

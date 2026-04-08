@@ -1,11 +1,15 @@
 // Pure module: maps a TimelineEvent to a SidePanelEventRow view-model
 // the side panel glue layer can render. No DOM, no Chrome APIs.
 //
-// PRIVACY-CRITICAL: screenshot rows carry the data URL as a string
-// field on the view-model — they never embed it in HTML. The glue
-// layer renders a placeholder by default and only swaps in
-// `<img src=dataUrl>` on explicit user reveal. See selected-plan.md
-// architectural decision #4.
+// Screenshot thumbnails are rendered visibly by default at 100px on the
+// long edge — the side panel is the user's own browser chrome and the
+// extra reveal click was friction without proportional privacy gain.
+// The side panel still never imports privileged Chrome capture APIs;
+// that invariant is pinned by tests/sidepanel-no-direct-capture.test.ts.
+//
+// Annotation rows can carry multiple images: the full-page screenshot
+// taken at annotation time AND, optionally, a cropped element-only
+// screenshot when the user picked an element.
 
 import type { TimelineEvent } from "../types";
 
@@ -17,6 +21,13 @@ export type RowAccent =
   | "info"
   | "annotation"
   | "screenshot";
+
+export interface SidePanelRowImage {
+  /** Stable id derived from the screenshot id (e.g. "ss_42"). */
+  id: string;
+  /** Resolved data URL, or null if the screenshots map didn't contain it. */
+  dataUrl: string | null;
+}
 
 export interface SidePanelEventRow {
   /** Stable row id derived from `seq`. */
@@ -30,12 +41,11 @@ export interface SidePanelEventRow {
   /** Visual accent for the row. */
   accent: RowAccent;
   /**
-   * Set when the row references a screenshot. The glue layer renders
-   * a placeholder by default and only swaps in <img src=dataUrl> on
-   * explicit reveal.
+   * Inline images attached to this row. May contain 0 (most events),
+   * 1 (standalone screenshot or annotation with full-page only), or
+   * 2 (annotation with both full-page and element crop) entries.
    */
-  screenshotPlaceholderId: string | null;
-  screenshotDataUrl: string | null;
+  images: readonly SidePanelRowImage[];
 }
 
 export function eventTypeLabel(event: TimelineEvent): string {
@@ -130,35 +140,43 @@ function eventAccent(event: TimelineEvent): RowAccent {
   }
 }
 
-function resolveScreenshot(
+function resolveImages(
   event: TimelineEvent,
   screenshots: Record<string, string>,
-): { id: string | null; dataUrl: string | null } {
+): SidePanelRowImage[] {
   if (event.type === "screenshot") {
-    const dataUrl = screenshots[event.id];
-    return { id: event.id, dataUrl: dataUrl ?? null };
+    return [{ id: event.id, dataUrl: screenshots[event.id] ?? null }];
   }
   if (event.type === "annotation") {
-    if (!event.screenshot_id) return { id: null, dataUrl: null };
-    const dataUrl = screenshots[event.screenshot_id];
-    return { id: event.screenshot_id, dataUrl: dataUrl ?? null };
+    const images: SidePanelRowImage[] = [];
+    if (event.screenshot_id) {
+      images.push({
+        id: event.screenshot_id,
+        dataUrl: screenshots[event.screenshot_id] ?? null,
+      });
+    }
+    if (event.element_screenshot_id) {
+      images.push({
+        id: event.element_screenshot_id,
+        dataUrl: screenshots[event.element_screenshot_id] ?? null,
+      });
+    }
+    return images;
   }
-  return { id: null, dataUrl: null };
+  return [];
 }
 
 export function eventToRow(
   event: TimelineEvent,
   screenshots: Record<string, string>,
 ): SidePanelEventRow {
-  const screenshot = resolveScreenshot(event, screenshots);
   return {
     id: `row-${event.seq}`,
     iso: event.timestamp,
     label: eventTypeLabel(event),
     detail: eventDetail(event),
     accent: eventAccent(event),
-    screenshotPlaceholderId: screenshot.id,
-    screenshotDataUrl: screenshot.dataUrl,
+    images: resolveImages(event, screenshots),
   };
 }
 

@@ -9,6 +9,7 @@ import {
   formatEventTimestamp,
   shouldAutoScroll,
   type SidePanelEventRow,
+  type SidePanelRowImage,
 } from "./sidepanel-render";
 import type { TimelineEvent } from "../types";
 
@@ -145,43 +146,65 @@ describe("eventToRow exhaustiveness (matrix #6b)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Row #7 — screenshot row carries placeholder id and resolves data URL
+// Row #7 — screenshot row resolves images from the screenshots map
 // ─────────────────────────────────────────────────────────────────────
 
-describe("eventToRow screenshot resolution (matrix #7)", () => {
-  it("screenshot event row carries placeholderId and dataUrl from the screenshots map", () => {
+describe("eventToRow image resolution (matrix #7)", () => {
+  it("screenshot event row has exactly one image carrying id and dataUrl", () => {
     const event = fixture("screenshot");
     const dataUrl = "data:image/png;base64,AAAA";
     const row = eventToRow(event, { ss_42: dataUrl });
-    expect(row.screenshotPlaceholderId).toBe("ss_42");
-    expect(row.screenshotDataUrl).toBe(dataUrl);
+    expect(row.images).toHaveLength(1);
+    expect(row.images[0]).toEqual({ id: "ss_42", dataUrl });
   });
 
-  it("annotation event row resolves screenshot via screenshot_id", () => {
+  it("annotation with only a full screenshot_id has one image", () => {
     const event = fixture("annotation");
     const dataUrl = "data:image/png;base64,BBBB";
     const row = eventToRow(event, { ss_42: dataUrl });
-    expect(row.screenshotPlaceholderId).toBe("ss_42");
-    expect(row.screenshotDataUrl).toBe(dataUrl);
+    expect(row.images).toHaveLength(1);
+    expect(row.images[0]).toEqual({ id: "ss_42", dataUrl });
   });
 
-  it("missing screenshot id yields null dataUrl (no throw)", () => {
+  it("annotation with both full and element screenshots has two images in order", () => {
+    const event = {
+      ...fixture("annotation"),
+      element_screenshot_id: "el_42",
+    } as TimelineEvent;
+    const row = eventToRow(event, {
+      ss_42: "data:image/png;base64,FULL",
+      el_42: "data:image/png;base64,EL",
+    });
+    expect(row.images).toHaveLength(2);
+    expect(row.images[0]).toEqual({ id: "ss_42", dataUrl: "data:image/png;base64,FULL" });
+    expect(row.images[1]).toEqual({ id: "el_42", dataUrl: "data:image/png;base64,EL" });
+  });
+
+  it("missing screenshot id yields null dataUrl on the image (no throw)", () => {
     const event = fixture("annotation");
     const row = eventToRow(event, {});
-    expect(row.screenshotPlaceholderId).toBe("ss_42");
-    expect(row.screenshotDataUrl).toBeNull();
+    expect(row.images).toHaveLength(1);
+    expect(row.images[0].id).toBe("ss_42");
+    expect(row.images[0].dataUrl).toBeNull();
   });
 
-  it("non-screenshot rows have null screenshot fields", () => {
-    const row = eventToRow(fixture("interaction"), {});
-    expect(row.screenshotPlaceholderId).toBeNull();
-    expect(row.screenshotDataUrl).toBeNull();
+  it("non-image event rows have an empty images array", () => {
+    expect(eventToRow(fixture("interaction"), {}).images).toEqual([]);
+    expect(eventToRow(fixture("console_error"), {}).images).toEqual([]);
+    expect(eventToRow(fixture("network_error"), {}).images).toEqual([]);
   });
 
-  // PRIVACY: the row carries the dataUrl as a STRING field on the
-  // view-model, not embedded in HTML. The glue layer must render a
-  // placeholder by default. This is pinned at the integration level
-  // (sidepanel.test.ts row #8) — here we just confirm the shape.
+  it("annotation with empty screenshot_id (legacy) yields no images", () => {
+    const event = {
+      ...fixture("annotation"),
+      screenshot_id: "",
+    } as TimelineEvent;
+    const row = eventToRow(event, {});
+    expect(row.images).toEqual([]);
+  });
+
+  // The view-model carries dataUrl as a string field — never embedded
+  // in HTML. The glue layer is responsible for safe DOM injection.
   it("row shape never embeds raw HTML for the thumbnail", () => {
     const row = eventToRow(fixture("screenshot"), { ss_42: "data:image/png;base64,XX" });
     const asJson = JSON.stringify(row);
@@ -223,8 +246,7 @@ describe("shouldAutoScroll", () => {
   });
 });
 
-// Type-level sanity check: SidePanelEventRow must include the privacy
-// fields. If this fails to compile, the privacy invariant is broken.
+// Type-level sanity check: SidePanelEventRow shape.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _typeCheck: SidePanelEventRow = {
   id: "1",
@@ -232,6 +254,5 @@ const _typeCheck: SidePanelEventRow = {
   label: "x",
   detail: "y",
   accent: "neutral",
-  screenshotPlaceholderId: null,
-  screenshotDataUrl: null,
+  images: [] as readonly SidePanelRowImage[],
 };
