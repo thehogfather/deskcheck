@@ -35,15 +35,18 @@
       "run_at": "document_idle"
     }
   ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/sidepanel/index.html"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "action": {
     "default_icon": {
       "16": "icons/icon-16.png",
       "48": "icons/icon-48.png",
       "128": "icons/icon-128.png"
     }
-  },
-  "side_panel": {
-    "default_path": "src/sidepanel/index.html"
   },
   "commands": {
     "take-screenshot": {
@@ -59,6 +62,13 @@
         "mac": "Alt+Shift+R"
       },
       "description": "Start or stop recording session"
+    },
+    "open-panel": {
+      "suggested_key": {
+        "default": "Alt+Shift+P",
+        "mac": "Alt+Shift+P"
+      },
+      "description": "Open the DeskCheck side panel on the current tab"
     }
   }
 }

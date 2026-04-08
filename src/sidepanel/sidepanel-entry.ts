@@ -20,6 +20,34 @@ async function main() {
     return;
   }
 
+  // DEBUG: report visibility changes to the SW so e2e tests can
+  // verify whether Chrome is actually hiding the panel on tab
+  // switch. This costs nothing at runtime (one listener, one
+  // postMessage per visibilitychange) and is invaluable for
+  // empirically verifying the tab-switch behavior from inside the
+  // panel document itself.
+  const reportVisibility = (kind: string) => {
+    try {
+      chrome.runtime
+        .sendMessage({
+          type: "SIDEPANEL_VISIBILITY",
+          kind,
+          visibilityState: document.visibilityState,
+          hidden: document.hidden,
+          timestamp: Date.now(),
+        })
+        .catch(() => {
+          /* ignore — SW may be asleep */
+        });
+    } catch {
+      /* ignore — chrome API may not be ready */
+    }
+  };
+  reportVisibility("mount");
+  document.addEventListener("visibilitychange", () => {
+    reportVisibility("change");
+  });
+
   // Fetch any pre-existing session state so the panel mounts directly
   // into the active view if a session is already running when the user
   // opens it.

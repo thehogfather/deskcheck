@@ -14,9 +14,28 @@ const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
 
 describe("manifest.json side panel registration (matrix #1)", () => {
-  it("declares side_panel.default_path pointing at src/sidepanel/index.html", () => {
-    expect(manifest.side_panel).toBeDefined();
-    expect(manifest.side_panel.default_path).toBe("src/sidepanel/index.html");
+  it("does NOT declare side_panel.default_path", () => {
+    // Per GoogleChrome/chrome-extensions-samples#987, having a
+    // global default_path causes Chrome to create a global panel
+    // that overrides per-tab setOptions and ignores the documented
+    // tab-switch hide/show behaviour. The panel is configured
+    // exclusively via per-tab setOptions in service-worker.ts, and
+    // the sidepanel HTML is bundled via vite-plugin-web-extension's
+    // additionalInputs option.
+    expect(manifest.side_panel).toBeUndefined();
+  });
+
+  it("lists the sidepanel HTML as a web-accessible resource", () => {
+    // Without default_path the sidepanel HTML needs to be in
+    // web_accessible_resources so the extension can navigate to it
+    // (used by the e2e debug spec to synthesize a user gesture for
+    // sidePanel.open).
+    const war = manifest.web_accessible_resources;
+    expect(war).toBeDefined();
+    const resources = (war as { resources: string[] }[]).flatMap(
+      (r) => r.resources,
+    );
+    expect(resources).toContain("src/sidepanel/index.html");
   });
 
   it("includes the sidePanel permission", () => {

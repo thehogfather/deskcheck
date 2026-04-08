@@ -4,6 +4,17 @@ export const STORAGE_EVENTS = "deskcheck_events";
 export const STORAGE_SCREENSHOTS = "deskcheck_screenshots";
 export const STORAGE_PRIVACY_FIRST_RUN_SEEN = "deskcheck_privacy_first_run_seen";
 
+// Side panel entry point. The manifest intentionally has NO
+// `side_panel.default_path` — a global default creates a
+// Chrome-owned panel instance that overrides per-tab setOptions and
+// ignores the documented tab-switch hide/show behaviour. This was
+// tracked as an "Opening SidePanel with tabId Results in Global
+// SidePanel" bug in the chrome-extensions-samples repo; the fix is
+// to configure the panel exclusively via per-tab setOptions. The
+// service worker sets this path per-tab on every action click and
+// on every newly-created tab while a binding is active.
+export const SIDEPANEL_PATH = "src/sidepanel/index.html";
+
 // CDP domains to enable
 export const CDP_DOMAINS = ["Network", "Log", "Runtime"] as const;
 
