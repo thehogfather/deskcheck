@@ -62,7 +62,8 @@
       "claimed_by": "orch-20260408-232745-23798",
       "claimed_at": "2026-04-08T22:28:26.803893+00:00",
       "branch": "feature/feature-11",
-      "status": "active"
+      "status": "completed",
+      "released_at": "2026-04-08T23:18:40.237063+00:00"
     }
   ]
 }
