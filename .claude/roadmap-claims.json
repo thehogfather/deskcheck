@@ -33,8 +33,10 @@
       "feature_title": "Incremental persistence (OPFS)",
       "claimed_by": "orch-20260407-222525-6254",
       "claimed_at": "2026-04-07T22:25:57.914196+00:00",
+      "released_at": "2026-04-08T00:10:00+00:00",
       "branch": "feature/incremental-persistence-opfs",
-      "status": "active"
+      "status": "completed",
+      "pr": "https://github.com/thehogfather/deskcheck/pull/5"
     },
     {
       "feature_id": "feature-8",
