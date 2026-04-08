@@ -54,6 +54,14 @@
       "claimed_at": "2026-04-08T22:20:13.729588+00:00",
       "branch": "feature/feature-9",
       "status": "active"
+    },
+    {
+      "feature_id": "feature-11",
+      "feature_title": "Side panel session controls: lifecycle, feedback, gated UI, reset",
+      "claimed_by": "orch-20260408-232745-23798",
+      "claimed_at": "2026-04-08T22:28:26.803893+00:00",
+      "branch": "feature/feature-11",
+      "status": "active"
     }
   ]
 }
