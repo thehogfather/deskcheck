@@ -49,6 +49,16 @@ describe("manifest.json side panel registration (matrix #1)", () => {
   });
 });
 
+describe("manifest.json tabGroups permission (feature #9)", () => {
+  it("includes the tabGroups permission", () => {
+    // Required so chrome.tabGroups.query / chrome.tabGroups.update are
+    // callable — feature #9 auto-groups the recording tab under a
+    // "DeskCheck" label so users can tell at a glance which tab is
+    // being recorded.
+    expect(manifest.permissions).toContain("tabGroups");
+  });
+});
+
 describe("manifest.json popup removal (matrix #3)", () => {
   it("does not declare action.default_popup", () => {
     if (manifest.action) {

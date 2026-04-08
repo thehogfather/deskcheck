@@ -80,6 +80,12 @@ interface MockChrome {
     onRemoved: { addListener: Fn };
     onCreated: { addListener: Fn };
     get: Fn;
+    group: Fn;
+    ungroup: Fn;
+  };
+  tabGroups: {
+    query: Fn;
+    update: Fn;
   };
   storage: {
     local: {
@@ -121,7 +127,23 @@ function installFakeChrome(): MockChrome {
       update: vi.fn().mockResolvedValue(undefined),
       onRemoved: { addListener: vi.fn() },
       onCreated: { addListener: vi.fn() },
-      get: vi.fn().mockResolvedValue({ id: 1, url: "https://example.com" }),
+      get: vi
+        .fn()
+        .mockResolvedValue({
+          id: 1,
+          url: "https://example.com",
+          active: true,
+          windowId: 7,
+        }),
+      // feature-9: tab-group primitives. SW imports the helper which
+      // feature-detects chrome.tabGroups, so these must exist on the
+      // fake global even when this test file only cares about feature-8.
+      group: vi.fn().mockResolvedValue(999),
+      ungroup: vi.fn().mockResolvedValue(undefined),
+    },
+    tabGroups: {
+      query: vi.fn().mockResolvedValue([]),
+      update: vi.fn().mockResolvedValue(undefined),
     },
     storage: {
       local: {
