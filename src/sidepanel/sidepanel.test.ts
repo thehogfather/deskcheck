@@ -16,6 +16,7 @@ type StorageListener = (
   area: string,
 ) => void;
 type FocusListener = (windowId: number) => void;
+type RuntimeListener = (msg: Message) => void;
 
 interface Harness {
   deps: SidePanelDeps;
@@ -25,6 +26,7 @@ interface Harness {
     area?: string,
   ) => void;
   fireFocus: (windowId: number) => void;
+  fireRuntimeMessage: (msg: Message) => void;
   setFirstRunSeen: (seen: boolean) => void;
   markedFirstRunSeen: () => boolean;
 }
@@ -43,21 +45,43 @@ function makeHarness(): Harness {
   const sent: Message[] = [];
   const storageListeners = new Set<StorageListener>();
   const focusListeners = new Set<FocusListener>();
+  const runtimeListeners = new Set<RuntimeListener>();
   let firstRunSeen = false;
   let markedSeen = false;
+  let recordingState = false;
+  let pausedState = false;
 
   const deps: SidePanelDeps = {
     root,
     sendMessage: async (msg: Message) => {
       sent.push(msg);
       if (msg.type === "GET_SESSION_STATE") {
-        return { recording: false, sessionId: null, activeTabId: null, hasExportableSession: false, piiMode: "full" };
+        return {
+          recording: recordingState,
+          paused: pausedState,
+          sessionId: recordingState ? "s1" : null,
+          activeTabId: null,
+          hasExportableSession: false,
+          piiMode: "full",
+        };
       }
       if (msg.type === "GET_SESSION_METRICS") {
         return { startTime: "", eventCount: 0, screenshotCount: 0, eventsSizeBytes: 0, screenshotsSizeBytes: 0 };
       }
       if (msg.type === "START_SESSION") {
+        recordingState = true;
         return { recording: true, sessionId: "s1", warnings: [] };
+      }
+      if (msg.type === "PAUSE_SESSION") {
+        pausedState = true;
+        return { paused: true };
+      }
+      if (msg.type === "RESUME_SESSION") {
+        pausedState = false;
+        return { paused: false };
+      }
+      if (msg.type === "TAKE_SCREENSHOT") {
+        return { dataUrl: "data:image/png;base64,STUB" };
       }
       return undefined;
     },
@@ -68,6 +92,10 @@ function makeHarness(): Harness {
     onWindowFocusChanged: {
       addListener: (l) => focusListeners.add(l),
       removeListener: (l) => focusListeners.delete(l),
+    },
+    onRuntimeMessage: {
+      addListener: (l) => runtimeListeners.add(l),
+      removeListener: (l) => runtimeListeners.delete(l),
     },
     getCurrentWindowId: async () => 7,
     getFirstRunSeen: async () => firstRunSeen,
@@ -87,6 +115,9 @@ function makeHarness(): Harness {
     },
     fireFocus: (windowId) => {
       for (const l of focusListeners) l(windowId);
+    },
+    fireRuntimeMessage: (msg) => {
+      for (const l of runtimeListeners) l(msg);
     },
     setFirstRunSeen: (seen) => {
       firstRunSeen = seen;
@@ -162,8 +193,10 @@ describe("controls region contents (matrix #14)", () => {
     await mountSidePanel(h.deps);
     const required = [
       "start-btn",
+      "pause-btn",
       "stop-btn",
       "screenshot-btn",
+      "pick-element-btn",
       "annotation-text",
       "pii-mode-fieldset",
       "metrics-row",
@@ -440,5 +473,170 @@ describe("independent scroll regions (matrix #19)", () => {
     expect(events.parentElement).toBe(h.deps.root);
     expect(controls.parentElement).toBe(h.deps.root);
     expect(events.contains(controls)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Pause / Resume
+// ─────────────────────────────────────────────────────────────────────
+
+describe("pause and resume", () => {
+  it("pause-btn is hidden in idle state", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    const btn = h.deps.root.querySelector<HTMLButtonElement>("#pause-btn");
+    expect(btn).not.toBeNull();
+    expect(btn!.style.display).toBe("none");
+  });
+
+  it("clicking pause sends PAUSE_SESSION and flips the badge + label", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    // Start a session so we transition to active.
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const pauseBtn = h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!;
+    expect(pauseBtn.style.display).not.toBe("none");
+    expect(pauseBtn.textContent).toBe("Pause");
+
+    pauseBtn.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const sentTypes = h.sent.map((m) => m.type);
+    expect(sentTypes).toContain("PAUSE_SESSION");
+    expect(pauseBtn.textContent).toBe("Resume");
+    const badge = h.deps.root.querySelector("#paused-badge")!;
+    expect(badge.classList.contains("hidden")).toBe(false);
+  });
+
+  it("clicking resume sends RESUME_SESSION and clears the badge", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const pauseBtn = h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!;
+    pauseBtn.click();
+    await new Promise((r) => setTimeout(r, 0));
+    pauseBtn.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(h.sent.map((m) => m.type)).toContain("RESUME_SESSION");
+    expect(pauseBtn.textContent).toBe("Pause");
+    const badge = h.deps.root.querySelector("#paused-badge")!;
+    expect(badge.classList.contains("hidden")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Pre-export reminder
+// ─────────────────────────────────────────────────────────────────────
+
+describe("pre-export reminder", () => {
+  it("clicking stop in active session opens the reminder, NOT STOP_SESSION", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    h.deps.root.querySelector<HTMLButtonElement>("#stop-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const reminder = h.deps.root.querySelector("#pre-export-reminder")!;
+    expect(reminder.classList.contains("hidden")).toBe(false);
+    expect(h.sent.map((m) => m.type)).not.toContain("STOP_SESSION");
+  });
+
+  it("'Keep recording' dismisses the reminder without stopping", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#stop-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    h.deps.root.querySelector<HTMLButtonElement>("#keep-recording-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const reminder = h.deps.root.querySelector("#pre-export-reminder")!;
+    expect(reminder.classList.contains("hidden")).toBe(true);
+    expect(h.sent.map((m) => m.type)).not.toContain("STOP_SESSION");
+  });
+
+  it("'Download' triggers STOP_SESSION + EXPORT_SESSION and hides the reminder", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#stop-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    h.deps.root.querySelector<HTMLButtonElement>("#download-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const types = h.sent.map((m) => m.type);
+    expect(types).toContain("STOP_SESSION");
+    expect(types).toContain("EXPORT_SESSION");
+    const reminder = h.deps.root.querySelector("#pre-export-reminder")!;
+    expect(reminder.classList.contains("hidden")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Element picker
+// ─────────────────────────────────────────────────────────────────────
+
+describe("element picker round-trip", () => {
+  it("PICK_ELEMENT_RESULT shows the selected-element chip with the selector", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+
+    h.fireRuntimeMessage({
+      type: "PICK_ELEMENT_RESULT",
+      element: {
+        tag: "button",
+        id: "submit",
+        selector: "button#submit",
+        bounding_box: { x: 10, y: 20, width: 100, height: 30 },
+      },
+      devicePixelRatio: 2,
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const chip = h.deps.root.querySelector("#selected-element")!;
+    expect(chip.classList.contains("hidden")).toBe(false);
+    expect(chip.textContent).toContain("button#submit");
+  });
+
+  it("clicking the chip's clear button removes the selection", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.fireRuntimeMessage({
+      type: "PICK_ELEMENT_RESULT",
+      element: {
+        tag: "div",
+        selector: "div.foo",
+        bounding_box: { x: 0, y: 0, width: 1, height: 1 },
+      },
+      devicePixelRatio: 1,
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const chip = h.deps.root.querySelector("#selected-element")!;
+    chip.querySelector<HTMLButtonElement>(".chip-clear")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(chip.classList.contains("hidden")).toBe(true);
+  });
+
+  it("PICK_ELEMENT_RESULT with element=null is a no-op", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.fireRuntimeMessage({
+      type: "PICK_ELEMENT_RESULT",
+      element: null,
+      devicePixelRatio: 1,
+    });
+    const chip = h.deps.root.querySelector("#selected-element")!;
+    expect(chip.classList.contains("hidden")).toBe(true);
   });
 });

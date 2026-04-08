@@ -18,6 +18,7 @@ import { computeSessionMetrics } from "../lib/session-metrics";
 import { takeScreenshot } from "./screenshot";
 
 let recording = false;
+let paused = false;
 let activeTabId: number | null = null;
 let activeSessionId: string | null = null;
 
@@ -97,11 +98,22 @@ async function handleMessage(
       const storedSession = await getSession();
       return {
         recording,
+        paused,
         sessionId: activeSessionId,
         activeTabId,
         hasExportableSession: storedSession != null,
         piiMode: storedSession?.pii_mode ?? DEFAULT_PII_MODE,
       };
+    }
+
+    case "PAUSE_SESSION": {
+      if (recording) paused = true;
+      return { paused };
+    }
+
+    case "RESUME_SESSION": {
+      paused = false;
+      return { paused };
     }
 
     case "GET_SESSION_METRICS": {
@@ -124,9 +136,14 @@ async function handleMessage(
 
       const warnings: string[] = [];
 
+      paused = false;
       if (activeTabId) {
         try {
           await debuggerClient.attach(activeTabId, msg.url, (event) => {
+            // CDP events are dropped while paused. Manual actions
+            // (TAKE_SCREENSHOT, ADD_ANNOTATION) bypass this gate
+            // because they are explicit user intent.
+            if (paused) return;
             appendEvent(event);
           });
         } catch (e) {
@@ -163,6 +180,7 @@ async function handleMessage(
       await debuggerClient.detach();
       await endSession();
       recording = false;
+      paused = false;
       const stoppedSessionId = activeSessionId;
       activeSessionId = null;
       activeTabId = null;
@@ -178,6 +196,7 @@ async function handleMessage(
 
     case "RECORD_EVENT": {
       if (!recording) return;
+      if (paused) return;
       if (sender.tab?.id && sender.tab.id !== activeTabId) return;
       if (
         msg.event.type === "interaction" &&
@@ -245,9 +264,6 @@ async function handleMessage(
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === "take-screenshot" && recording && activeTabId) {
     await takeScreenshot(activeTabId, "manual");
-  }
-  if (command === "toggle-annotation" && recording && activeTabId) {
-    await chrome.tabs.sendMessage(activeTabId, { type: "FOCUS_ANNOTATION" }).catch(() => {});
   }
   if (command === "toggle-session") {
     const tab = await getActiveTab();

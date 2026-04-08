@@ -17,6 +17,7 @@
 //   - GET_SESSION_STATE response on mount or focus change
 
 import type {
+  ElementInfo,
   Message,
   PiiCaptureMode,
   SessionMetadata,
@@ -27,6 +28,8 @@ import {
   STORAGE_SESSION,
   STORAGE_SCREENSHOTS,
 } from "../constants";
+import { cropScreenshot } from "../lib/image-utils";
+import { PRIVACY_REMINDER_LINE } from "../lib/privacy";
 import {
   eventToRow,
   formatEventTimestamp,
@@ -90,11 +93,22 @@ export interface SidePanelDeps {
    * user clicks Start. Defaults to chrome.tabs.query in production.
    */
   queryActiveTab?: () => Promise<chrome.tabs.Tab | undefined>;
+  /**
+   * chrome.runtime.onMessage shim. The side panel listens for
+   * PICK_ELEMENT_RESULT messages from the content script after a
+   * "Pick element" round-trip. Injectable for tests.
+   */
+  onRuntimeMessage?: {
+    addListener(l: (msg: Message) => void): void;
+    removeListener(l: (msg: Message) => void): void;
+  };
 }
 
 export interface SidePanelHandle {
   /** Read the current state for tests. */
   getState(): "idle" | "active";
+  /** Read whether the active session is currently paused. */
+  isPaused(): boolean;
   /** Tear down listeners and DOM (used between tests). */
   unmount(): void;
 }
@@ -148,9 +162,12 @@ export async function mountSidePanel(
 
   // ─── Local state ──────────────────────────────────────────────────
   let state: "idle" | "active" = "idle";
+  let paused = false;
   let events: TimelineEvent[] = deps.initialEvents ? [...deps.initialEvents] : [];
   let screenshots: Record<string, string> = { ...(deps.initialScreenshots ?? {}) };
   let selectedPiiMode: PiiCaptureMode = deps.initialPiiMode ?? DEFAULT_PII_MODE;
+  let selectedElement: ElementInfo | null = null;
+  let selectedElementDpr: number = 1;
   let windowId: number = -1;
   let scrollDebounce: ReturnType<typeof setTimeout> | null = null;
 
@@ -186,8 +203,10 @@ export async function mountSidePanel(
   });
 
   const startBtn = el("button", { id: "start-btn", class: "sp-btn primary" }, ["Start session"]);
+  const pauseBtn = el("button", { id: "pause-btn", class: "sp-btn" }, ["Pause"]);
   const stopBtn = el("button", { id: "stop-btn", class: "sp-btn danger" }, ["Stop & download"]);
   const screenshotBtn = el("button", { id: "screenshot-btn", class: "sp-btn" }, ["Screenshot"]);
+  const pickElementBtn = el("button", { id: "pick-element-btn", class: "sp-btn" }, ["Pick element"]);
 
   const annotationText = el("textarea", {
     id: "annotation-text",
@@ -195,29 +214,50 @@ export async function mountSidePanel(
   }) as HTMLTextAreaElement;
   const addNoteBtn = el("button", { id: "add-note-btn", class: "sp-btn" }, ["Add note"]);
 
+  const elementChip = el("div", { id: "selected-element", class: "selected-element-chip hidden" });
+
   const metricsRow = el("div", { id: "metrics-row", class: "metrics-row" });
   const metricsDuration = el("span", { class: "metrics-duration" }, ["< 1s"]);
   const metricsCounts = el("span", { class: "metrics-counts" }, ["0 events"]);
   const metricsSize = el("span", { class: "metrics-size" }, ["0 KB"]);
+  const pausedBadge = el("span", { id: "paused-badge", class: "metrics-paused hidden" }, ["paused"]);
   metricsRow.appendChild(metricsDuration);
   metricsRow.appendChild(document.createTextNode(" · "));
   metricsRow.appendChild(metricsCounts);
   metricsRow.appendChild(document.createTextNode(" · "));
   metricsRow.appendChild(metricsSize);
+  metricsRow.appendChild(document.createTextNode(" "));
+  metricsRow.appendChild(pausedBadge);
+
+  // Pre-export reminder panel — hidden until the user clicks Stop.
+  const reminderPanel = el("div", { id: "pre-export-reminder", class: "pre-export-reminder hidden", role: "alertdialog" });
+  const reminderText = el("p", { class: "reminder-text" }, [PRIVACY_REMINDER_LINE]);
+  const reminderActions = el("div", { class: "sp-row" });
+  const keepRecordingBtn = el("button", { id: "keep-recording-btn", class: "sp-btn" }, ["Keep recording"]);
+  const downloadBtn = el("button", { id: "download-btn", class: "sp-btn danger" }, ["Download"]);
+  reminderActions.appendChild(keepRecordingBtn);
+  reminderActions.appendChild(downloadBtn);
+  reminderPanel.appendChild(reminderText);
+  reminderPanel.appendChild(reminderActions);
 
   controls.appendChild(piiFieldset);
   controls.appendChild(metricsRow);
+  controls.appendChild(elementChip);
   controls.appendChild(annotationText);
 
   const noteRow = el("div", { class: "sp-row" });
   noteRow.appendChild(addNoteBtn);
+  noteRow.appendChild(pickElementBtn);
   noteRow.appendChild(screenshotBtn);
   controls.appendChild(noteRow);
 
   const sessionRow = el("div", { class: "sp-row" });
   sessionRow.appendChild(startBtn);
+  sessionRow.appendChild(pauseBtn);
   sessionRow.appendChild(stopBtn);
   controls.appendChild(sessionRow);
+
+  controls.appendChild(reminderPanel);
 
   // ─── First-run notice ─────────────────────────────────────────────
   let noticeNode: HTMLElement | null = null;
@@ -316,6 +356,19 @@ export async function mountSidePanel(
   };
   onWindowFocusChanged.addListener(focusListener);
 
+  // Runtime message listener — receives PICK_ELEMENT_RESULT from the
+  // content script after the user finishes the element-picker overlay.
+  const runtimeListener = (msg: Message) => {
+    if (msg.type === "PICK_ELEMENT_RESULT") {
+      onPickResult(msg.element, msg.devicePixelRatio);
+    }
+  };
+  if (deps.onRuntimeMessage) {
+    deps.onRuntimeMessage.addListener(runtimeListener);
+  } else if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener(runtimeListener);
+  }
+
   // Scroll persistence (debounced). Skipped if no sessionStorage shim
   // is provided — the helper would otherwise reach for the global
   // `chrome` which is absent in jsdom tests.
@@ -347,12 +400,40 @@ export async function mountSidePanel(
     }
   });
 
-  stopBtn.addEventListener("click", async () => {
+  // Stop & download is gated by an inline pre-export reminder. Clicking
+  // Stop opens the reminder; the user must explicitly choose Download
+  // (proceed) or Keep recording (cancel). Anti-muscle-memory for a
+  // privacy control — initial focus goes to Keep recording.
+  stopBtn.addEventListener("click", () => {
+    if (state !== "active") return;
+    showReminder();
+  });
+
+  keepRecordingBtn.addEventListener("click", () => {
+    hideReminder();
+  });
+
+  downloadBtn.addEventListener("click", async () => {
+    hideReminder();
     try {
       await sendMessage({ type: "STOP_SESSION" });
       transitionToIdle();
-      // Trigger export immediately, mirroring the popup's behaviour.
       await sendMessage({ type: "EXPORT_SESSION" });
+    } catch {
+      // Non-fatal.
+    }
+  });
+
+  pauseBtn.addEventListener("click", async () => {
+    try {
+      if (paused) {
+        await sendMessage({ type: "RESUME_SESSION" });
+        paused = false;
+      } else {
+        await sendMessage({ type: "PAUSE_SESSION" });
+        paused = true;
+      }
+      applyStateToControls();
     } catch {
       // Non-fatal.
     }
@@ -366,12 +447,54 @@ export async function mountSidePanel(
     }
   });
 
+  pickElementBtn.addEventListener("click", async () => {
+    try {
+      // The picker overlay lives in the recorded tab's content script.
+      // We message it directly via the active tab so the overlay
+      // appears on the right page even if the user has multiple tabs.
+      const tab = await getActiveTab();
+      if (!tab?.id) return;
+      await chrome.tabs.sendMessage(tab.id, { type: "START_ELEMENT_PICKER" });
+    } catch {
+      // Non-fatal — content script may not be injected on chrome:// pages.
+    }
+  });
+
   addNoteBtn.addEventListener("click", async () => {
     const text = annotationText.value.trim();
     if (!text) return;
     try {
-      await sendMessage({ type: "ADD_ANNOTATION", text });
+      // If the user picked an element, crop a fresh full-page screenshot
+      // to its bounding box and ship the cropped data with the
+      // annotation. The crop happens at submit time so the page reflects
+      // its current state, matching the original widget semantic.
+      let elementScreenshotData: string | undefined;
+      if (selectedElement?.bounding_box) {
+        try {
+          const response = (await sendMessage({
+            type: "TAKE_SCREENSHOT",
+            trigger: "annotation",
+          })) as { dataUrl?: string } | undefined;
+          if (response?.dataUrl) {
+            elementScreenshotData = await cropScreenshot(
+              response.dataUrl,
+              selectedElement.bounding_box,
+              selectedElementDpr,
+            );
+          }
+        } catch {
+          // Fall back to annotation without element screenshot.
+        }
+      }
+
+      await sendMessage({
+        type: "ADD_ANNOTATION",
+        text,
+        element: selectedElement ?? undefined,
+        elementScreenshotData,
+      });
       annotationText.value = "";
+      clearSelectedElement();
     } catch {
       // Non-fatal.
     }
@@ -401,13 +524,15 @@ export async function mountSidePanel(
   async function refreshSessionState() {
     try {
       const result = (await sendMessage({ type: "GET_SESSION_STATE" })) as
-        | { recording?: boolean; piiMode?: PiiCaptureMode }
+        | { recording?: boolean; paused?: boolean; piiMode?: PiiCaptureMode }
         | undefined;
       if (result?.recording) {
         transitionToActive();
       } else {
         transitionToIdle();
       }
+      paused = !!result?.paused;
+      applyStateToControls();
       if (result?.piiMode) {
         selectedPiiMode = parsePiiMode(result.piiMode);
         const radio = piiFieldset.querySelector<HTMLInputElement>(
@@ -427,20 +552,61 @@ export async function mountSidePanel(
 
   function transitionToIdle() {
     state = "idle";
+    paused = false;
+    hideReminder();
+    clearSelectedElement();
     applyStateToControls();
   }
 
   function applyStateToControls() {
     if (state === "active") {
       startBtn.style.display = "none";
+      pauseBtn.style.display = "";
       stopBtn.style.display = "";
+      pauseBtn.textContent = paused ? "Resume" : "Pause";
+      pauseBtn.classList.toggle("primary", paused);
+      pausedBadge.classList.toggle("hidden", !paused);
     } else {
       startBtn.style.display = "";
+      pauseBtn.style.display = "none";
       stopBtn.style.display = "none";
+      pausedBadge.classList.add("hidden");
     }
     // Annotation/screenshot remain enabled in both states. The SW gates
-    // capture when no session is active (it's a no-op there). Disabling
-    // them in the UI would require a second source of truth.
+    // capture when no session is active (it's a no-op there).
+  }
+
+  function showReminder() {
+    reminderPanel.classList.remove("hidden");
+    keepRecordingBtn.focus();
+  }
+
+  function hideReminder() {
+    reminderPanel.classList.add("hidden");
+  }
+
+  function onPickResult(element: ElementInfo | null, dpr: number) {
+    if (!element) {
+      clearSelectedElement();
+      return;
+    }
+    selectedElement = element;
+    selectedElementDpr = dpr || 1;
+    elementChip.classList.remove("hidden");
+    clearChildren(elementChip);
+    const label = `${element.tag}${element.id ? "#" + element.id : ""} → ${element.selector}`;
+    const labelSpan = el("span", { class: "chip-label" }, [label]);
+    const clearBtn = el("button", { class: "chip-clear", title: "Clear element selection" }, ["×"]);
+    clearBtn.addEventListener("click", () => clearSelectedElement());
+    elementChip.appendChild(labelSpan);
+    elementChip.appendChild(clearBtn);
+  }
+
+  function clearSelectedElement() {
+    selectedElement = null;
+    selectedElementDpr = 1;
+    elementChip.classList.add("hidden");
+    clearChildren(elementChip);
   }
 
   function renderAllEvents() {
@@ -517,11 +683,17 @@ export async function mountSidePanel(
   // ─── Handle ───────────────────────────────────────────────────────
   return {
     getState: () => state,
+    isPaused: () => paused,
     unmount: () => {
       if (scrollDebounce) clearTimeout(scrollDebounce);
       eventsList.removeEventListener("scroll", scrollHandler);
       onChanged.removeListener(sessionListener);
       onWindowFocusChanged.removeListener(focusListener);
+      if (deps.onRuntimeMessage) {
+        deps.onRuntimeMessage.removeListener(runtimeListener);
+      } else if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+        chrome.runtime.onMessage.removeListener(runtimeListener);
+      }
       eventsSubscription.unsubscribe();
       clearChildren(root);
     },

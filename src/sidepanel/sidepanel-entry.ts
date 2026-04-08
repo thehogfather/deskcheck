@@ -50,6 +50,7 @@ async function main() {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       return tabs[0];
     },
+    onRuntimeMessage: chrome.runtime.onMessage,
   };
 
   await mountSidePanel(deps);

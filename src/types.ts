@@ -155,12 +155,16 @@ export type Message =
   | { type: "SESSION_STATE"; recording: boolean; sessionId: string | null; activeTabId: number | null }
   | { type: "START_SESSION"; tabId: number; url: string; viewport: Viewport; piiMode?: PiiCaptureMode }
   | { type: "STOP_SESSION" }
+  | { type: "PAUSE_SESSION" }
+  | { type: "RESUME_SESSION" }
   | { type: "SESSION_STARTED"; sessionId: string; piiMode: PiiCaptureMode }
   | { type: "SESSION_STOPPED" }
   | { type: "RECORD_EVENT"; event: TimelineEventInput }
   | { type: "TAKE_SCREENSHOT"; trigger: ScreenshotEvent["trigger"] }
   | { type: "EXPORT_SESSION" }
   | { type: "ADD_ANNOTATION"; text: string; element?: ElementInfo; elementScreenshotData?: string }
-  | { type: "FOCUS_ANNOTATION" };
+  | { type: "START_ELEMENT_PICKER" }
+  | { type: "CANCEL_ELEMENT_PICKER" }
+  | { type: "PICK_ELEMENT_RESULT"; element: ElementInfo | null; devicePixelRatio: number };
 
 export type { PiiCaptureMode, InputMetadata } from "./lib/pii-modes";
