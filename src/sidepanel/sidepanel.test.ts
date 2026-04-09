@@ -1118,3 +1118,207 @@ describe("feature-11 reset click defensively re-checks state", () => {
     expect(h.sent.map((m) => m.type)).not.toContain("RESET_SESSION");
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════
+// Feature #12 acceptance tests — Side panel control layout refinement
+// ═════════════════════════════════════════════════════════════════════
+
+describe("feature-12: three-region layout (toolbar, events, controls)", () => {
+  it("mounts #toolbar above #events-list above #controls in root", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    const order = Array.from(h.deps.root.children).map((c) => (c as HTMLElement).id);
+    expect(order).toContain("toolbar");
+    expect(order).toContain("events-list");
+    expect(order).toContain("controls");
+    expect(order.indexOf("toolbar")).toBeLessThan(order.indexOf("events-list"));
+    expect(order.indexOf("events-list")).toBeLessThan(order.indexOf("controls"));
+  });
+});
+
+describe("feature-12: screenshot button removed", () => {
+  it("#screenshot-btn is absent from DOM in idle state", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    expect(h.deps.root.querySelector("#screenshot-btn")).toBeNull();
+  });
+
+  it("#screenshot-btn is absent from DOM in active session", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.deps.root.querySelector("#screenshot-btn")).toBeNull();
+  });
+});
+
+describe("feature-12: lifecycle controls in toolbar", () => {
+  it("pre-session: #start-btn is inside #toolbar", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    const toolbar = h.deps.root.querySelector("#toolbar");
+    expect(toolbar).not.toBeNull();
+    expect(toolbar!.querySelector("#start-btn")).not.toBeNull();
+  });
+
+  it("active session: pause, stop, discard are inside #toolbar", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const toolbar = h.deps.root.querySelector("#toolbar")!;
+    expect(toolbar.querySelector("#pause-btn")).not.toBeNull();
+    expect(toolbar.querySelector("#stop-btn")).not.toBeNull();
+    expect(toolbar.querySelector("#discard-btn")).not.toBeNull();
+  });
+
+  it("active session: lifecycle buttons NOT in #controls", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const controls = h.deps.root.querySelector("#controls")!;
+    expect(controls.querySelector("#pause-btn")).toBeNull();
+    expect(controls.querySelector("#stop-btn")).toBeNull();
+    expect(controls.querySelector("#discard-btn")).toBeNull();
+    expect(controls.querySelector("#start-btn")).toBeNull();
+  });
+
+  it("metrics row is inside #toolbar", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    const toolbar = h.deps.root.querySelector("#toolbar")!;
+    expect(toolbar.querySelector("#metrics-row")).not.toBeNull();
+  });
+});
+
+describe("feature-12: annotation area in controls", () => {
+  it("active session: #controls contains annotation-text, add-note-btn, pii-mode-fieldset", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const controls = h.deps.root.querySelector("#controls")!;
+    expect(controls.querySelector("#annotation-text")).not.toBeNull();
+    expect(controls.querySelector("#add-note-btn")).not.toBeNull();
+    expect(controls.querySelector("#pii-mode-fieldset")).not.toBeNull();
+  });
+});
+
+describe("feature-12: element picker embedded in annotation wrapper", () => {
+  it("#pick-element-btn is inside .annotation-wrapper during active session", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const wrapper = h.deps.root.querySelector(".annotation-wrapper");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.querySelector("#pick-element-btn")).not.toBeNull();
+  });
+
+  it("#annotation-text is inside .annotation-wrapper", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const wrapper = h.deps.root.querySelector(".annotation-wrapper")!;
+    expect(wrapper.querySelector("#annotation-text")).not.toBeNull();
+  });
+});
+
+describe("feature-12: button icons", () => {
+  it("all buttons have a .btn-icon span during active session", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const buttonsWithIcons = [
+      "pause-btn",
+      "stop-btn",
+      "discard-btn",
+      "pick-element-btn",
+      "add-note-btn",
+    ];
+    for (const id of buttonsWithIcons) {
+      const btn = h.deps.root.querySelector(`#${id}`);
+      expect(btn, `#${id} should be in DOM`).not.toBeNull();
+      expect(
+        btn!.querySelector(".btn-icon"),
+        `#${id} should have a .btn-icon span`,
+      ).not.toBeNull();
+    }
+  });
+
+  it("#start-btn has a .btn-icon span pre-session", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    const startBtn = h.deps.root.querySelector("#start-btn");
+    expect(startBtn).not.toBeNull();
+    expect(startBtn!.querySelector(".btn-icon")).not.toBeNull();
+  });
+});
+
+describe("feature-12: withLoadingState preserves icons", () => {
+  it("icon span survives a loading cycle on add-note button", async () => {
+    const h = makeHarness();
+    h.setSlow("ADD_ANNOTATION", 50);
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const ta = h.deps.root.querySelector<HTMLTextAreaElement>("#annotation-text")!;
+    ta.value = "test";
+    const addBtn = h.deps.root.querySelector<HTMLButtonElement>("#add-note-btn")!;
+    const iconBefore = addBtn.querySelector(".btn-icon");
+    expect(iconBefore).not.toBeNull();
+    const iconText = iconBefore!.textContent;
+
+    addBtn.click();
+    // Mid-flight: icon should still be present.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(addBtn.querySelector(".btn-icon")).not.toBeNull();
+
+    // After completion: icon restored.
+    await new Promise((r) => setTimeout(r, 100));
+    const iconAfter = addBtn.querySelector(".btn-icon");
+    expect(iconAfter).not.toBeNull();
+    expect(iconAfter!.textContent).toBe(iconText);
+  });
+});
+
+describe("feature-12: newEventsChip in events-list", () => {
+  it("#new-events-chip is inside #events-list, not #controls", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    const eventsList = h.deps.root.querySelector("#events-list")!;
+    const controls = h.deps.root.querySelector("#controls")!;
+    expect(eventsList.querySelector("#new-events-chip")).not.toBeNull();
+    expect(controls.querySelector("#new-events-chip")).toBeNull();
+  });
+});
+
+describe("feature-12: dialogs remain in #controls", () => {
+  it("#pre-export-reminder is inside #controls during active session", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    // Click stop to show the reminder.
+    h.deps.root.querySelector<HTMLButtonElement>("#stop-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const controls = h.deps.root.querySelector("#controls")!;
+    expect(controls.querySelector("#pre-export-reminder")).not.toBeNull();
+  });
+
+  it("#discard-confirm-dialog is inside #controls during active session", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    // Click discard to show the dialog.
+    h.deps.root.querySelector<HTMLButtonElement>("#discard-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const controls = h.deps.root.querySelector("#controls")!;
+    expect(controls.querySelector("#discard-confirm-dialog")).not.toBeNull();
+  });
+});

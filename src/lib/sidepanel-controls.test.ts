@@ -105,3 +105,18 @@ describe("buildControlsModel — always-on regions", () => {
     });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Feature #12 acceptance — screenshot field removed
+// ─────────────────────────────────────────────────────────────────────
+
+describe("feature-12: screenshot field removed from ControlVisibility", () => {
+  for (const status of STATES) {
+    for (const hasResidualState of [false, true]) {
+      it(`no screenshot property when status=${status}, residual=${hasResidualState}`, () => {
+        const m = buildControlsModel({ status, hasResidualState });
+        expect(m).not.toHaveProperty("screenshot");
+      });
+    }
+  }
+});
