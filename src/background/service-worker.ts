@@ -571,22 +571,21 @@ async function handleMessage(
       if (!session) return { error: "No session" };
       const zipBytes = await exportSessionStreaming(store, session);
       const filename = getExportFilename(session);
-      // Blob URL rather than data: base64 — removes the O(n) base64
-      // encode that used to double peak memory right before download.
-      const blob = new Blob([new Uint8Array(zipBytes)], {
-        type: "application/zip",
-      });
-      const url = URL.createObjectURL(blob);
-      try {
-        await chrome.downloads.download({ url, filename, saveAs: true });
-      } finally {
-        // Release the Blob URL as soon as the download call returns.
-        // Chrome keeps the data alive until the download completes.
-        URL.revokeObjectURL(url);
-      }
-      // Clear session AFTER the download is dispatched so any
-      // streaming error above surfaces to the caller before we wipe
-      // the data.
+      // MV3 service workers in Chrome do NOT expose
+      // `URL.createObjectURL` (as of Chrome 147 — confirmed
+      // empirically). A Blob URL approach would save one encode pass
+      // but is currently non-functional in this runtime. Until Chrome
+      // ships URL.createObjectURL in SW, we fall back to a data URL
+      // built via a chunked base64 encode. The streaming zip writer
+      // still caps memory during the recording session (one screenshot
+      // in flight at a time); this only re-encodes the finished zip
+      // at download time, which is a bounded one-shot cost.
+      const dataUrl = `data:application/zip;base64,${bytesToBase64(zipBytes)}`;
+      await chrome.downloads.download({ url: dataUrl, filename, saveAs: true });
+      // Clear the session after the download call returns. Chrome's
+      // downloads process keeps the data URL alive on its own side
+      // until the download completes, so there is no URL lifetime
+      // concern like there would be with a blob URL.
       await store.deleteSession();
       broadcastToPanels({ type: "SESSION_CLEARED" });
       return { filename };
@@ -595,14 +594,11 @@ async function handleMessage(
 }
 
 /**
- * Encode raw PNG bytes to a `data:image/png;base64,...` URL.
- *
- * Used by `GET_EVENTS_SNAPSHOT` to ship screenshot bytes to the side
- * panel one-by-one rather than the whole session at once. Encodes in
- * 8190-byte (multiple of 3) chunks to avoid `String.fromCharCode`
- * argument limits on large screenshots.
+ * Encode raw bytes to a base64 string in 8190-byte (multiple of 3)
+ * chunks to avoid the `String.fromCharCode.apply(...)` argument limit
+ * and to keep peak memory usage bounded on large inputs.
  */
-function bytesToPngDataUrl(bytes: Uint8Array): string {
+function bytesToBase64(bytes: Uint8Array): string {
   const CHUNK = 8190;
   const parts: string[] = [];
   for (let i = 0; i < bytes.length; i += CHUNK) {
@@ -613,7 +609,17 @@ function bytesToPngDataUrl(bytes: Uint8Array): string {
     }
     parts.push(btoa(bin));
   }
-  return `data:image/png;base64,${parts.join("")}`;
+  return parts.join("");
+}
+
+/**
+ * Encode raw PNG bytes to a `data:image/png;base64,...` URL.
+ *
+ * Used by `GET_EVENTS_SNAPSHOT` to ship screenshot bytes to the side
+ * panel one-by-one rather than the whole session at once.
+ */
+function bytesToPngDataUrl(bytes: Uint8Array): string {
+  return `data:image/png;base64,${bytesToBase64(bytes)}`;
 }
 
 // ── Keyboard shortcuts ──
