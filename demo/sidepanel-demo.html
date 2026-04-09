@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeskCheck — Side Panel Demo</title>
+  <style>
+    /* Exact copy of src/sidepanel/sidepanel.css variables and core styles */
+    :root {
+      --bg: #0f172a;
+      --bg-elev: #1e293b;
+      --bg-elev-2: #334155;
+      --border: #334155;
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --success: #10b981;
+      --annotation: #a855f7;
+      --screenshot: #06b6d4;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    #sidepanel-root {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* Toolbar */
+    #toolbar {
+      flex: 0 0 auto;
+      background: var(--bg-elev);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* Events list */
+    #events-list {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 8px;
+      background: var(--bg);
+    }
+
+    .event-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: baseline;
+      padding: 6px 10px;
+      margin-bottom: 4px;
+      background: var(--bg-elev);
+      border-left: 3px solid var(--bg-elev-2);
+      border-radius: 4px;
+      font-size: 12px;
+      opacity: 0;
+      transform: translateY(6px);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+
+    .event-row.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .event-row.accent-danger { border-left-color: var(--danger); }
+    .event-row.accent-warning { border-left-color: var(--warning); }
+    .event-row.accent-info { border-left-color: var(--accent); }
+    .event-row.accent-success { border-left-color: var(--success); }
+    .event-row.accent-annotation { border-left-color: var(--annotation); }
+    .event-row.accent-screenshot { border-left-color: var(--screenshot); }
+
+    .event-time {
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+      font-size: 11px;
+      flex: 0 0 auto;
+    }
+
+    .event-label {
+      color: var(--text);
+      font-weight: 500;
+      flex: 0 0 auto;
+    }
+
+    .event-detail {
+      color: var(--text-dim);
+      flex: 1 1 auto;
+      word-break: break-word;
+    }
+
+    /* Controls */
+    #controls {
+      flex: 0 0 auto;
+      background: var(--bg-elev);
+      border-top: 1px solid var(--border);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* PII fieldset */
+    #pii-mode-fieldset {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px 8px;
+      margin: 0;
+    }
+
+    #pii-mode-fieldset legend {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0 4px;
+    }
+
+    .pii-mode-option {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text);
+      cursor: pointer;
+      padding: 2px 0;
+    }
+
+    .pii-mode-option .hint {
+      color: var(--text-dim);
+      font-size: 11px;
+      margin-left: auto;
+    }
+
+    /* Metrics row */
+    #metrics-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    /* Buttons */
+    .sp-row { display: flex; gap: 8px; }
+
+    .sp-btn {
+      flex: 1;
+      padding: 8px 12px;
+      background: var(--bg-elev-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .sp-btn:hover:not(:disabled) {
+      background: var(--bg);
+      border-color: var(--accent);
+    }
+
+    .sp-btn.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .sp-btn.primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }
+
+    .sp-btn.danger {
+      background: var(--danger);
+      color: #fff;
+      border-color: var(--danger);
+    }
+
+    .btn-icon { margin-right: 4px; font-size: 13px; line-height: 1; }
+
+    /* Annotation */
+    .annotation-wrapper {
+      position: relative;
+      width: 100%;
+    }
+
+    .annotation-wrapper #annotation-text {
+      padding-right: 36px;
+    }
+
+    #annotation-text {
+      width: 100%;
+      min-height: 64px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      font-family: inherit;
+      font-size: 12px;
+      resize: vertical;
+    }
+
+    #annotation-text:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .annotation-wrapper #pick-element-btn {
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      flex: 0;
+      padding: 3px 6px;
+      border: none;
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .annotation-wrapper #pick-element-btn .btn-icon {
+      font-size: 16px;
+      margin-right: 0;
+    }
+
+    .annotation-wrapper #pick-element-btn .btn-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .empty-state-hint {
+      margin: 0;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: var(--text-dim);
+      text-align: center;
+      background: var(--bg);
+      border: 1px dashed var(--border);
+      border-radius: 6px;
+    }
+
+    .hidden { display: none !important; }
+
+    /* Pre-export reminder */
+    .pre-export-reminder {
+      background: var(--bg);
+      border: 1px solid var(--warning);
+      border-radius: 6px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .pre-export-reminder .reminder-text {
+      margin: 0;
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div id="sidepanel-root">
+    <!-- Toolbar -->
+    <section id="toolbar">
+      <div id="metrics-row">
+        <span class="metrics-duration" id="duration">0:00</span>
+        <span> · </span>
+        <span class="metrics-counts" id="event-count">0 events</span>
+        <span> · </span>
+        <span class="metrics-size" id="data-size">0 KB</span>
+      </div>
+      <div class="sp-row" id="lifecycle-row">
+        <button class="sp-btn primary" id="start-btn">
+          <span class="btn-icon">▶︎</span>
+          <span class="btn-label">Start session</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Events list -->
+    <section id="events-list">
+      <div id="empty-state-hint" class="empty-state-hint">
+        Start a session to begin capturing.
+      </div>
+    </section>
+
+    <!-- Controls -->
+    <section id="controls">
+      <fieldset id="pii-mode-fieldset">
+        <legend>PII capture mode</legend>
+        <label class="pii-mode-option">
+          <input type="radio" name="pii-mode" value="full" checked>
+          Full capture <span class="hint">for internal tools</span>
+        </label>
+        <label class="pii-mode-option">
+          <input type="radio" name="pii-mode" value="masked">
+          Mask inputs <span class="hint">passwords always masked</span>
+        </label>
+        <label class="pii-mode-option">
+          <input type="radio" name="pii-mode" value="redacted">
+          Redact all <span class="hint">no PII in export</span>
+        </label>
+      </fieldset>
+    </section>
+
+    <!-- Pre-export reminder (initially hidden) -->
+    <section id="pre-export-reminder" class="pre-export-reminder hidden" style="margin: 12px;">
+      <p class="reminder-text">This export may contain screenshots and form inputs from the recorded tab that are sensitive. It is intended for local use only — review before sharing.</p>
+      <div class="sp-row">
+        <button class="sp-btn" id="keep-recording-btn">Keep recording</button>
+        <button class="sp-btn danger" id="download-btn">Download</button>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // Demo event data — all hardcoded, no user input
+    const demoEvents = [
+      { time: "14:23:01", label: "Navigate", detail: "https://app.example.com/dashboard", accent: "neutral" },
+      { time: "14:23:03", label: "Click", detail: "button.submit-form", accent: "neutral" },
+      { time: "14:23:04", label: "Network error", detail: "POST /api/v2/orders (500)", accent: "danger" },
+      { time: "14:23:04", label: "Console error", detail: "Uncaught TypeError: Cannot read properties of undefined (reading 'items')", accent: "danger" },
+      { time: "14:23:06", label: "Click", detail: "a.retry-link", accent: "neutral" },
+      { time: "14:23:07", label: "Network error", detail: "POST /api/v2/orders (500)", accent: "danger" },
+      { time: "14:23:09", label: "Console warning", detail: "Rate limit approaching: 95% of quota used", accent: "warning" },
+      { time: "14:23:12", label: "Screenshot", detail: "manual", accent: "screenshot" },
+      { time: "14:23:15", label: "Annotation", detail: "Bug: clicking Submit on the order form returns a 500. Happens consistently after adding 3+ items to cart.", accent: "annotation" },
+      { time: "14:23:18", label: "Click", detail: "nav.sidebar > a.settings", accent: "neutral" },
+      { time: "14:23:19", label: "Navigate", detail: "https://app.example.com/settings", accent: "neutral" },
+      { time: "14:23:21", label: "Input", detail: "12 chars (2 words)", accent: "neutral" },
+      { time: "14:23:23", label: "JS exception", detail: "RangeError: Maximum call stack size exceeded", accent: "danger" },
+    ];
+
+    // DOM helpers using safe methods only
+    function createEventRow(event) {
+      const row = document.createElement('div');
+      row.className = 'event-row accent-' + event.accent;
+
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'event-time';
+      timeSpan.textContent = event.time;
+
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'event-label';
+      labelSpan.textContent = event.label;
+
+      const detailSpan = document.createElement('span');
+      detailSpan.className = 'event-detail';
+      detailSpan.textContent = event.detail;
+
+      row.appendChild(timeSpan);
+      row.appendChild(labelSpan);
+      row.appendChild(detailSpan);
+      return row;
+    }
+
+    function createButton(id, cls, icon, label) {
+      const btn = document.createElement('button');
+      btn.id = id;
+      btn.className = cls;
+
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'btn-icon';
+      iconSpan.textContent = icon;
+
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'btn-label';
+      labelSpan.textContent = label;
+
+      btn.appendChild(iconSpan);
+      btn.appendChild(labelSpan);
+      return btn;
+    }
+
+    // State
+    let currentEventIndex = 0;
+    let sessionActive = false;
+    let elapsedSeconds = 0;
+    let timerInterval = null;
+
+    const eventsList = document.getElementById('events-list');
+    const emptyHint = document.getElementById('empty-state-hint');
+    const lifecycleRow = document.getElementById('lifecycle-row');
+    const controlsSection = document.getElementById('controls');
+    const durationEl = document.getElementById('duration');
+    const eventCountEl = document.getElementById('event-count');
+    const dataSizeEl = document.getElementById('data-size');
+
+    function formatDuration(secs) {
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      return m + ':' + s.toString().padStart(2, '0');
+    }
+
+    function updateMetrics() {
+      durationEl.textContent = formatDuration(elapsedSeconds);
+      const count = currentEventIndex;
+      eventCountEl.textContent = count + ' event' + (count !== 1 ? 's' : '');
+      const kb = Math.round(count * 0.8 + 1);
+      dataSizeEl.textContent = kb + ' KB';
+    }
+
+    function addEventRow(event) {
+      const row = createEventRow(event);
+      eventsList.appendChild(row);
+      // Trigger animation
+      requestAnimationFrame(function() {
+        requestAnimationFrame(function() {
+          row.classList.add('visible');
+        });
+      });
+      eventsList.scrollTop = eventsList.scrollHeight;
+    }
+
+    function transitionToActive() {
+      sessionActive = true;
+      emptyHint.classList.add('hidden');
+
+      // Clear lifecycle row and add Pause/Download/Discard
+      while (lifecycleRow.firstChild) lifecycleRow.removeChild(lifecycleRow.firstChild);
+      lifecycleRow.appendChild(createButton('pause-btn', 'sp-btn', '\u275A\u275A', 'Pause'));
+      lifecycleRow.appendChild(createButton('stop-btn', 'sp-btn primary', '\u2913', 'Download'));
+      lifecycleRow.appendChild(createButton('discard-btn', 'sp-btn danger', '\u2715', 'Discard'));
+
+      // Add annotation controls before PII fieldset
+      const piiFieldset = document.getElementById('pii-mode-fieldset');
+
+      const annotationWrapper = document.createElement('div');
+      annotationWrapper.className = 'annotation-wrapper';
+      annotationWrapper.id = 'annotation-wrapper';
+
+      const textarea = document.createElement('textarea');
+      textarea.id = 'annotation-text';
+      textarea.placeholder = 'What did you expect? What happened instead?';
+      annotationWrapper.appendChild(textarea);
+
+      const pickBtn = document.createElement('button');
+      pickBtn.id = 'pick-element-btn';
+      const pickIcon = document.createElement('span');
+      pickIcon.className = 'btn-icon';
+      pickIcon.textContent = '\u2316';
+      const pickLabel = document.createElement('span');
+      pickLabel.className = 'btn-label';
+      pickLabel.textContent = 'SELECT';
+      pickBtn.appendChild(pickIcon);
+      pickBtn.appendChild(pickLabel);
+      annotationWrapper.appendChild(pickBtn);
+
+      controlsSection.insertBefore(annotationWrapper, piiFieldset);
+
+      const noteRow = document.createElement('div');
+      noteRow.className = 'sp-row';
+      noteRow.id = 'note-row';
+      noteRow.appendChild(createButton('screenshot-btn', 'sp-btn', '\uD83D\uDCF7', 'Screenshot'));
+      noteRow.appendChild(createButton('add-note-btn', 'sp-btn primary', '\uFF0B', 'Add note'));
+      controlsSection.insertBefore(noteRow, piiFieldset);
+
+      // Start timer
+      elapsedSeconds = 0;
+      timerInterval = setInterval(function() {
+        elapsedSeconds++;
+        updateMetrics();
+      }, 1000);
+    }
+
+    function transitionToStopped() {
+      sessionActive = false;
+      clearInterval(timerInterval);
+      document.getElementById('pre-export-reminder').classList.remove('hidden');
+    }
+
+    // API for Playwright to drive the demo
+    window.demoAPI = {
+      startSession: function() {
+        transitionToActive();
+        updateMetrics();
+      },
+      addNextEvent: function() {
+        if (currentEventIndex < demoEvents.length) {
+          addEventRow(demoEvents[currentEventIndex]);
+          currentEventIndex++;
+          updateMetrics();
+          return true;
+        }
+        return false;
+      },
+      typeAnnotation: function(text) {
+        const textarea = document.getElementById('annotation-text');
+        if (textarea) textarea.value = text;
+      },
+      clickAddNote: function() {
+        const textarea = document.getElementById('annotation-text');
+        if (textarea && textarea.value) {
+          addEventRow({
+            time: '14:23:' + (25 + currentEventIndex).toString(),
+            label: 'Annotation',
+            detail: textarea.value,
+            accent: 'annotation',
+          });
+          currentEventIndex++;
+          textarea.value = '';
+          updateMetrics();
+        }
+      },
+      showExportReminder: function() {
+        transitionToStopped();
+      },
+      getEventCount: function() {
+        return currentEventIndex;
+      },
+    };
+  </script>
+</body>
+</html>

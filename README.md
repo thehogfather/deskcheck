@@ -2,6 +2,17 @@
 
 A Chrome extension (Manifest V3) that records debugging sessions for AI-assisted bug fixing. Captures user interactions, console errors, network failures, JS exceptions, screenshots, and your own annotations into a single exportable zip file.
 
+<p align="center">
+  <img src="demo/assets/desktop-screenshot.png" alt="DeskCheck — side panel capturing clicks, errors, and annotations alongside the web app being tested" width="800">
+</p>
+
+<details>
+<summary>See it in action (GIF)</summary>
+<p align="center">
+  <img src="demo/assets/demo.gif" alt="DeskCheck demo — start session, capture events, add annotation, export" width="800">
+</p>
+</details>
+
 ## What it does
 
 When you hit a bug you can't easily reproduce in words, start a DeskCheck session, repro the bug, and stop. You get a zip containing:
