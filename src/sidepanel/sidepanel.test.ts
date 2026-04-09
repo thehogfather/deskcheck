@@ -244,7 +244,6 @@ describe("controls region contents (matrix #14)", () => {
       "pause-btn",
       "stop-btn",
       "discard-btn",
-      "screenshot-btn",
       "pick-element-btn",
       "annotation-text",
       "add-note-btn",
@@ -268,7 +267,6 @@ describe("controls region contents (matrix #14)", () => {
       "pause-btn",
       "stop-btn",
       "discard-btn",
-      "screenshot-btn",
       "pick-element-btn",
       "annotation-text",
       "add-note-btn",
@@ -576,7 +574,7 @@ describe("pause and resume", () => {
 
     const pauseBtn = h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!;
     expect(pauseBtn).not.toBeNull();
-    expect(pauseBtn.textContent).toBe("Pause");
+    expect(pauseBtn.querySelector(".btn-label")!.textContent).toBe("Pause");
     // No paused badge before pause.
     expect(h.deps.root.querySelector("#paused-badge")).toBeNull();
 
@@ -585,7 +583,7 @@ describe("pause and resume", () => {
 
     const sentTypes = h.sent.map((m) => m.type);
     expect(sentTypes).toContain("PAUSE_SESSION");
-    expect(pauseBtn.textContent).toBe("Resume");
+    expect(pauseBtn.querySelector(".btn-label")!.textContent).toBe("Resume");
     // Paused badge is now mounted.
     expect(h.deps.root.querySelector("#paused-badge")).not.toBeNull();
   });
@@ -602,7 +600,7 @@ describe("pause and resume", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(h.sent.map((m) => m.type)).toContain("RESUME_SESSION");
-    expect(pauseBtn.textContent).toBe("Pause");
+    expect(pauseBtn.querySelector(".btn-label")!.textContent).toBe("Pause");
     expect(h.deps.root.querySelector("#paused-badge")).toBeNull();
   });
 });
@@ -744,13 +742,12 @@ describe("feature-11 gated controls: pre-session state", () => {
     expect(hint!.textContent).toContain("Start a session");
   });
 
-  it("hides annotation, screenshot, picker, and lifecycle controls pre-session", async () => {
+  it("hides annotation, picker, and lifecycle controls pre-session", async () => {
     const h = makeHarness();
     await mountSidePanel(h.deps);
     const absent = [
       "annotation-text",
       "add-note-btn",
-      "screenshot-btn",
       "pick-element-btn",
       "pause-btn",
       "stop-btn",
@@ -778,7 +775,6 @@ describe("feature-11 gated controls: on start, controls appear", () => {
     const revealed = [
       "annotation-text",
       "add-note-btn",
-      "screenshot-btn",
       "pick-element-btn",
       "pause-btn",
       "stop-btn",
@@ -832,28 +828,13 @@ describe("feature-11 loading feedback", () => {
     await new Promise((r) => setTimeout(r, 5));
     expect(addBtn.disabled).toBe(true);
     expect(addBtn.getAttribute("aria-busy")).toBe("true");
-    expect(addBtn.textContent).toBe("Saving…");
+    expect(addBtn.querySelector(".btn-label")!.textContent).toBe("Saving…");
     // Wait for the click promise to settle.
     await click;
     await new Promise((r) => setTimeout(r, 40));
     expect(addBtn.disabled).toBe(false);
     expect(addBtn.getAttribute("aria-busy")).toBeNull();
-    expect(addBtn.textContent).toBe("Add note");
-  });
-
-  it("Capture screenshot shows a loading state ('Capturing…')", async () => {
-    const h = makeHarness();
-    h.setSlow("TAKE_SCREENSHOT", 30);
-    await mountSidePanel(h.deps);
-    await startSession(h);
-    const btn = h.deps.root.querySelector<HTMLButtonElement>("#screenshot-btn")!;
-    btn.click();
-    await new Promise((r) => setTimeout(r, 5));
-    expect(btn.disabled).toBe(true);
-    expect(btn.textContent).toBe("Capturing…");
-    await new Promise((r) => setTimeout(r, 40));
-    expect(btn.disabled).toBe(false);
-    expect(btn.textContent).toBe("Screenshot");
+    expect(addBtn.querySelector(".btn-label")!.textContent).toBe("Add note");
   });
 
   it("Download shows a loading state while export is in flight", async () => {

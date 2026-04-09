@@ -14,7 +14,6 @@ describe("buildControlsModel — pre-session states (idle & stopped)", () => {
     it(`hides all interaction/lifecycle controls in ${status}`, () => {
       const m = buildControlsModel({ status, hasResidualState: false });
       expect(m.annotation).toBe(false);
-      expect(m.screenshot).toBe(false);
       expect(m.elementPicker).toBe(false);
       expect(m.pause).toBe(false);
       expect(m.stop).toBe(false);
@@ -43,7 +42,6 @@ describe("buildControlsModel — in-flight states (running & paused)", () => {
     it(`shows interaction controls in ${status}`, () => {
       const m = buildControlsModel({ status, hasResidualState: false });
       expect(m.annotation).toBe(true);
-      expect(m.screenshot).toBe(true);
       expect(m.elementPicker).toBe(true);
     });
 

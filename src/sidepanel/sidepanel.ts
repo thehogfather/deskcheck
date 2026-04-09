@@ -206,6 +206,9 @@ export async function mountSidePanel(
 
   const noticeContainer = el("section", { id: "first-run-notice-container" });
 
+  const toolbar = el("section", { id: "toolbar" });
+  toolbar.style.flex = "0 0 auto";
+
   const eventsList = el("section", { id: "events-list" });
   // Inline flex styles so the integration test can confirm a sticky-bottom layout.
   eventsList.style.flex = "1 1 auto";
@@ -215,11 +218,13 @@ export async function mountSidePanel(
   controls.style.flex = "0 0 auto";
 
   // Apply column flex on the root so events scrolls and controls is pinned.
+  // Three-region layout: toolbar (lifecycle) → events (feed) → controls (annotation).
   root.style.display = "flex";
   root.style.flexDirection = "column";
   root.style.height = "100vh";
 
   root.appendChild(noticeContainer);
+  root.appendChild(toolbar);
   root.appendChild(eventsList);
   root.appendChild(controls);
 
@@ -232,19 +237,29 @@ export async function mountSidePanel(
     selectedPiiMode = parsePiiMode(checked?.value);
   });
 
-  const startBtn = el("button", { id: "start-btn", class: "sp-btn primary" }, ["Start session"]);
-  const pauseBtn = el("button", { id: "pause-btn", class: "sp-btn" }, ["Pause"]);
-  const stopBtn = el("button", { id: "stop-btn", class: "sp-btn danger" }, ["Stop & download"]);
-  const discardBtn = el("button", { id: "discard-btn", class: "sp-btn danger" }, ["Discard"]);
-  const resetBtn = el("button", { id: "reset-btn", class: "sp-btn" }, ["Reset"]);
-  const screenshotBtn = el("button", { id: "screenshot-btn", class: "sp-btn" }, ["Screenshot"]);
-  const pickElementBtn = el("button", { id: "pick-element-btn", class: "sp-btn" }, ["Pick element"]);
+  /** Build a button with `<span class="btn-icon">icon</span><span class="btn-label">text</span>`. */
+  function iconBtn(id: string, cls: string, icon: string, label: string): HTMLButtonElement {
+    return el("button", { id, class: cls }, [
+      el("span", { class: "btn-icon" }, [icon]),
+      el("span", { class: "btn-label" }, [label]),
+    ]);
+  }
+
+  const startBtn = iconBtn("start-btn", "sp-btn primary", "\u25B6", "Start session");
+  const pauseBtn = iconBtn("pause-btn", "sp-btn", "\u23F8", "Pause");
+  const stopBtn = iconBtn("stop-btn", "sp-btn danger", "\u23F9", "Stop & download");
+  const discardBtn = iconBtn("discard-btn", "sp-btn danger", "\uD83D\uDDD1", "Discard");
+  const resetBtn = iconBtn("reset-btn", "sp-btn", "\u21BA", "Reset");
+  const pickElementBtn = iconBtn("pick-element-btn", "sp-btn", "\uD83C\uDFAF", "Pick element");
 
   const annotationText = el("textarea", {
     id: "annotation-text",
     placeholder: "What did you expect? What happened instead?",
   }) as HTMLTextAreaElement;
-  const addNoteBtn = el("button", { id: "add-note-btn", class: "sp-btn" }, ["Add note"]);
+  const addNoteBtn = iconBtn("add-note-btn", "sp-btn", "\uD83D\uDCDD", "Add note");
+
+  // Annotation wrapper — contains textarea + embedded picker icon.
+  const annotationWrapper = el("div", { class: "annotation-wrapper" });
 
   const elementChip = el("div", { id: "selected-element", class: "selected-element-chip hidden" });
 
@@ -554,16 +569,6 @@ export async function mountSidePanel(
     }
   });
 
-  screenshotBtn.addEventListener("click", async () => {
-    try {
-      await withLoadingState(screenshotBtn, "Capturing\u2026", async () => {
-        await sendMessage({ type: "TAKE_SCREENSHOT", trigger: "manual" });
-      });
-    } catch {
-      // Non-fatal.
-    }
-  });
-
   pickElementBtn.addEventListener("click", async () => {
     try {
       // The picker overlay lives in the recorded tab's content script.
@@ -693,10 +698,17 @@ export async function mountSidePanel(
     busyLabel: string,
     fn: () => Promise<void>,
   ): Promise<void> {
-    const idleLabel = btn.textContent ?? "";
+    // Target only the .btn-label span so icon nodes survive the
+    // save/restore cycle (feature #12 — withLoadingState icon safety).
+    const labelSpan = btn.querySelector(".btn-label");
+    const idleLabel = labelSpan?.textContent ?? btn.textContent ?? "";
     btn.disabled = true;
     btn.setAttribute("aria-busy", "true");
-    btn.textContent = busyLabel;
+    if (labelSpan) {
+      labelSpan.textContent = busyLabel;
+    } else {
+      btn.textContent = busyLabel;
+    }
     try {
       await fn();
       asyncErrorLine.textContent = "";
@@ -706,7 +718,11 @@ export async function mountSidePanel(
     } finally {
       btn.disabled = false;
       btn.removeAttribute("aria-busy");
-      btn.textContent = idleLabel;
+      if (labelSpan) {
+        labelSpan.textContent = idleLabel;
+      } else {
+        btn.textContent = idleLabel;
+      }
     }
   }
 
@@ -770,18 +786,17 @@ export async function mountSidePanel(
       hasResidualState: hasResidualState(),
     });
 
-    // Clear all children and re-mount only the visible ones.
+    // Clear both regions and re-mount only the visible children.
     // This ensures hidden controls are absent from the DOM, not merely
     // display:none. The DoD requires querySelector(...) === null for
     // hidden controls.
+    clearChildren(toolbar);
     clearChildren(controls);
 
-    // Always: PII fieldset and metrics row.
-    if (model.piiMode) controls.appendChild(piiFieldset);
-    if (model.metrics) controls.appendChild(metricsRow);
+    // ── Toolbar region (lifecycle + metrics) ────────────────────────
 
-    // Empty-state hint (pre-session, no residual).
-    if (model.emptyStateHint) controls.appendChild(emptyStateHint);
+    // Always: metrics row.
+    if (model.metrics) toolbar.appendChild(metricsRow);
 
     // Paused badge — structurally add/remove from metricsRow (hide-not-disable).
     if (model.pausedBadge) {
@@ -795,48 +810,59 @@ export async function mountSidePanel(
       }
     }
 
-    // Pause button label.
+    // Empty-state hint (pre-session, no residual).
+    if (model.emptyStateHint) toolbar.appendChild(emptyStateHint);
+
+    // Pause button icon + label swap.
+    const pauseIcon = pauseBtn.querySelector(".btn-icon");
+    const pauseLabel = pauseBtn.querySelector(".btn-label");
     if (status === "paused") {
-      pauseBtn.textContent = "Resume";
+      if (pauseIcon) pauseIcon.textContent = "\u25B6";
+      if (pauseLabel) pauseLabel.textContent = "Resume";
       pauseBtn.classList.add("primary");
     } else {
-      pauseBtn.textContent = "Pause";
+      if (pauseIcon) pauseIcon.textContent = "\u23F8";
+      if (pauseLabel) pauseLabel.textContent = "Pause";
       pauseBtn.classList.remove("primary");
     }
 
-    // Element chip — only during active session.
-    if (model.annotation) {
-      controls.appendChild(elementChip);
-      controls.appendChild(annotationText);
-    }
-
-    // Note row: add-note, pick-element, screenshot.
-    if (model.annotation || model.screenshot || model.elementPicker) {
-      const noteRow = el("div", { class: "sp-row" });
-      if (model.annotation) noteRow.appendChild(addNoteBtn);
-      if (model.elementPicker) noteRow.appendChild(pickElementBtn);
-      if (model.screenshot) noteRow.appendChild(screenshotBtn);
-      controls.appendChild(noteRow);
-    }
-
-    // Lifecycle row: pause, stop, discard OR start (+reset).
+    // Lifecycle row: pause, stop, discard.
     if (model.pause || model.stop || model.discard) {
       const lifecycleRow = el("div", { class: "sp-row" });
       if (model.pause) lifecycleRow.appendChild(pauseBtn);
       if (model.stop) lifecycleRow.appendChild(stopBtn);
       if (model.discard) lifecycleRow.appendChild(discardBtn);
-      controls.appendChild(lifecycleRow);
+      toolbar.appendChild(lifecycleRow);
     }
 
+    // Pre-session row: start (+reset).
     if (model.start || model.reset) {
       const preSessionRow = el("div", { class: "sp-row" });
       if (model.start) preSessionRow.appendChild(startBtn);
       if (model.reset) preSessionRow.appendChild(resetBtn);
-      controls.appendChild(preSessionRow);
+      toolbar.appendChild(preSessionRow);
     }
 
-    // Reminder panels and error line — always appended when relevant
-    // controls are present. They start hidden via CSS class.
+    // ── Controls region (annotation area) ───────────────────────────
+
+    // Always: PII fieldset.
+    if (model.piiMode) controls.appendChild(piiFieldset);
+
+    // Annotation wrapper with embedded picker — only during active session.
+    if (model.annotation) {
+      controls.appendChild(elementChip);
+
+      // Build the annotation wrapper: textarea + embedded picker icon.
+      clearChildren(annotationWrapper);
+      annotationWrapper.appendChild(annotationText);
+      if (model.elementPicker) annotationWrapper.appendChild(pickElementBtn);
+      controls.appendChild(annotationWrapper);
+
+      controls.appendChild(addNoteBtn);
+    }
+
+    // Reminder panels and error line — stay in controls as intentional
+    // friction for privacy-critical actions.
     if (model.stop) {
       controls.appendChild(reminderPanel);
     }
@@ -844,7 +870,11 @@ export async function mountSidePanel(
       controls.appendChild(discardDialog);
     }
     controls.appendChild(asyncErrorLine);
-    controls.appendChild(newEventsChip);
+
+    // newEventsChip lives in the events list (sticky scroll container).
+    if (!eventsList.contains(newEventsChip)) {
+      eventsList.appendChild(newEventsChip);
+    }
   }
 
   function showReminder() {
@@ -903,6 +933,9 @@ export async function mountSidePanel(
     for (const e of events) {
       appendRow(eventToRow(e, screenshots));
     }
+    // Re-append the new-events chip after clearing (it lives in the
+    // scroll container for sticky positioning).
+    eventsList.appendChild(newEventsChip);
   }
 
   // Backfill thumbnails for an already-rendered row when its
