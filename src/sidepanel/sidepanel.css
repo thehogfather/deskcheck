@@ -87,6 +87,18 @@ html, body {
   background: var(--accent-hover);
 }
 
+/* ── Toolbar (lifecycle controls + metrics) ── */
+
+#toolbar {
+  flex: 0 0 auto;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* ── Events list ── */
 
 #events-list {
@@ -360,6 +372,68 @@ html, body {
 
 .sp-btn.danger:hover:not(:disabled) {
   background: #dc2626;
+}
+
+/* ── Feature #12: annotation wrapper + button icons ── */
+
+.annotation-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.annotation-wrapper #annotation-text {
+  padding-right: 36px;
+}
+
+.annotation-wrapper #pick-element-btn {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  flex: 0;
+  padding: 3px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.annotation-wrapper #pick-element-btn .btn-icon {
+  font-size: 16px;
+  margin-right: 0;
+}
+
+.annotation-wrapper #pick-element-btn .btn-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.annotation-wrapper #pick-element-btn:hover {
+  color: var(--accent);
+  background: var(--bg-elev-2);
+}
+
+.annotation-wrapper #pick-element-btn.picker-active {
+  color: var(--accent);
+  background: var(--bg-elev-2);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  cursor: crosshair;
+}
+
+/* ── Feature #12: button icon + label structure ── */
+
+.btn-icon {
+  margin-right: 4px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.btn-label {
+  /* Inherits button font size */
 }
 
 /* ── Feature #11: empty-state hint, loading, chip, discard dialog ── */

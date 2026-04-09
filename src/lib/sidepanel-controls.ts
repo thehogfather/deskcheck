@@ -27,8 +27,6 @@ export interface ControlVisibility {
   emptyStateHint: boolean;
   /** Annotation textarea + add-note button. */
   annotation: boolean;
-  /** Screenshot button. */
-  screenshot: boolean;
   /** Element picker button. */
   elementPicker: boolean;
   /** Pause button (label swaps between "Pause" and "Resume" in the glue layer). */
@@ -66,7 +64,6 @@ export function buildControlsModel(
     metrics: true,
     emptyStateHint: preSession && !hasResidualState,
     annotation: lifecycleVisible,
-    screenshot: lifecycleVisible,
     elementPicker: lifecycleVisible,
     pause: lifecycleVisible,
     stop: lifecycleVisible,

@@ -14,7 +14,6 @@ describe("buildControlsModel — pre-session states (idle & stopped)", () => {
     it(`hides all interaction/lifecycle controls in ${status}`, () => {
       const m = buildControlsModel({ status, hasResidualState: false });
       expect(m.annotation).toBe(false);
-      expect(m.screenshot).toBe(false);
       expect(m.elementPicker).toBe(false);
       expect(m.pause).toBe(false);
       expect(m.stop).toBe(false);
@@ -43,7 +42,6 @@ describe("buildControlsModel — in-flight states (running & paused)", () => {
     it(`shows interaction controls in ${status}`, () => {
       const m = buildControlsModel({ status, hasResidualState: false });
       expect(m.annotation).toBe(true);
-      expect(m.screenshot).toBe(true);
       expect(m.elementPicker).toBe(true);
     });
 
@@ -103,5 +101,20 @@ describe("buildControlsModel — always-on regions", () => {
       expect(buildControlsModel({ status, hasResidualState: false }).metrics).toBe(true);
       expect(buildControlsModel({ status, hasResidualState: true }).metrics).toBe(true);
     });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Feature #12 acceptance — screenshot field removed
+// ─────────────────────────────────────────────────────────────────────
+
+describe("feature-12: screenshot field removed from ControlVisibility", () => {
+  for (const status of STATES) {
+    for (const hasResidualState of [false, true]) {
+      it(`no screenshot property when status=${status}, residual=${hasResidualState}`, () => {
+        const m = buildControlsModel({ status, hasResidualState });
+        expect(m).not.toHaveProperty("screenshot");
+      });
+    }
   }
 });
