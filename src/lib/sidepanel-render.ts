@@ -74,6 +74,10 @@ export function eventTypeLabel(event: TimelineEvent): string {
       return "Annotation";
     case "screenshot":
       return "Screenshot";
+    case "session_paused":
+      return "Paused";
+    case "session_resumed":
+      return "Resumed";
     default: {
       const _exhaustive: never = event;
       return _exhaustive;
@@ -114,6 +118,10 @@ function eventDetail(event: TimelineEvent): string {
       return event.text;
     case "screenshot":
       return event.trigger;
+    case "session_paused":
+      return "capture suspended";
+    case "session_resumed":
+      return "capture resumed";
   }
 }
 
@@ -133,6 +141,9 @@ function eventAccent(event: TimelineEvent): RowAccent {
       return "annotation";
     case "screenshot":
       return "screenshot";
+    case "session_paused":
+    case "session_resumed":
+      return "info";
     default: {
       const _exhaustive: never = event;
       return _exhaustive;
@@ -210,6 +221,8 @@ export function assertExhaustiveSidePanelEvent(e: TimelineEvent): void {
     case "js_exception":
     case "annotation":
     case "screenshot":
+    case "session_paused":
+    case "session_resumed":
       return;
     default: {
       const _exhaustive: never = e;

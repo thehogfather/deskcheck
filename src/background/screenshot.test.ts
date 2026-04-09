@@ -100,6 +100,7 @@ describe("captureAndPersistScreenshot", () => {
       user_agent: "test",
       viewport: { width: 1024, height: 768 },
       pii_mode: "full",
+      status: "running",
     });
   });
 

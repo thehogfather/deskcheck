@@ -35,6 +35,7 @@ describe("exportSessionStreaming — golden-file schema regression", () => {
       user_agent: goldenSession.session.user_agent,
       viewport: goldenSession.session.viewport,
       pii_mode: goldenSession.session.pii_mode as "full",
+      status: "stopped",
     };
 
     await store.createSession(meta);
@@ -81,6 +82,7 @@ describe("exportSessionStreaming — golden-file schema regression", () => {
       user_agent: "Test",
       viewport: { width: 100, height: 100 },
       pii_mode: "full",
+      status: "running",
     };
     await store.createSession(meta);
 

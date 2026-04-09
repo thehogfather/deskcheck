@@ -7,8 +7,12 @@ import { TimelineEvent } from "../types";
  * The export contract is the *whole zip layout*, not just session.json.
  * 1.1.0 added the sibling `agents.md` doc; session.json's shape did not
  * change, so existing parsers still work — minor bump per semver.
+ * 1.2.0 added the `session.status` field and two additive
+ * `TimelineEvent` discriminators (`session_paused`, `session_resumed`)
+ * — still additive, so existing parsers that ignore unknown fields
+ * and event types continue to work.
  */
-export const SCHEMA_VERSION = "1.1.0" as const;
+export const SCHEMA_VERSION = "1.2.0" as const;
 
 /**
  * Canonical list of every TimelineEvent discriminator. Kept in lockstep
@@ -23,6 +27,8 @@ export const AGENTS_MD_EVENT_TYPES = [
   "js_exception",
   "annotation",
   "screenshot",
+  "session_paused",
+  "session_resumed",
 ] as const satisfies readonly TimelineEvent["type"][];
 
 /**
@@ -42,6 +48,8 @@ export function assertExhaustiveEventTypes(e: TimelineEvent): void {
     case "js_exception":
     case "annotation":
     case "screenshot":
+    case "session_paused":
+    case "session_resumed":
       return;
     default: {
       const _exhaustive: never = e;
@@ -108,6 +116,7 @@ Top-level keys:
 | \`initial_url\` | string | URL of the tab when recording started. |
 | \`user_agent\` | string | Browser user agent string. |
 | \`viewport\` | object | \`{ width, height }\` of the tab at recording start. |
+| \`status\` | \`"running"\` \\| \`"paused"\` \\| \`"stopped"\` | Lifecycle state of the session at export time. \`"stopped"\` means the user clicked Stop and the session was finalised cleanly. \`"running"\` or \`"paused"\` means the export was produced from an in-flight session (rare — manual tooling). Added in schema 1.2.0. |
 
 ## Timeline
 
@@ -121,7 +130,7 @@ these base fields:
 | \`page_url\` | string | URL of the page when the event was captured. |
 | \`type\` | string | Discriminator — one of the values listed below. |
 
-The \`type\` field selects the rest of the shape. There are seven
+The \`type\` field selects the rest of the shape. There are nine
 event types.
 
 ## Event types
@@ -207,6 +216,41 @@ attached to an annotation).
 | \`file\` | string | Relative path to the PNG inside the zip. |
 | \`viewport\` | \`{ width, height }\` | Viewport at capture time. |
 | \`trigger\` | \`"annotation"\` \\| \`"navigation"\` \\| \`"manual"\` | Why the screenshot was taken. |
+
+### type: \`session_paused\`
+
+The user clicked Pause in the side panel. Capture of interactions,
+console errors, network errors, and screenshots is suspended from
+this timestamp forward until a paired \`session_resumed\` event (or
+the end of the session). There are no additional fields — the base
+\`seq\` / \`timestamp\` / \`page_url\` carry the full signal.
+
+Readers reconstructing reproduction steps should treat the interval
+between a \`session_paused\` and its paired \`session_resumed\` as "user
+deliberately hid activity" — there is no missing data to recover.
+
+Added in schema 1.2.0.
+
+### type: \`session_resumed\`
+
+The user clicked Resume after a previous \`session_paused\`. Capture
+of the event streams listed under \`session_paused\` is re-enabled
+from this timestamp forward. No additional fields.
+
+A \`session_paused\` that is NOT followed by a \`session_resumed\` means
+the user stopped or discarded the session while paused — the export
+is still interpretable and the gap extends to the end of the
+timeline.
+
+Added in schema 1.2.0.
+
+### Note on \`total_events\` vs lifecycle markers
+
+The summary's \`total_events\` count **includes** \`session_paused\` and
+\`session_resumed\` markers, because they are genuine entries in the
+\`timeline\` array. If your tooling wants an "interesting events" count
+(click/input/error/annotation/screenshot), filter out the lifecycle
+markers explicitly — they are cheap to identify by their discriminator.
 
 ## Screenshots directory
 

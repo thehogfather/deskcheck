@@ -23,6 +23,7 @@ function makeSession(overrides?: Partial<SessionMetadata>): SessionMetadata {
     user_agent: "TestAgent/1.0",
     viewport: { width: 1280, height: 720 },
     pii_mode: "full",
+    status: "stopped",
     ...overrides,
   };
 }
@@ -123,7 +124,7 @@ describe("exportSession", () => {
     const json = JSON.parse(
       strFromU8(unzipped["session.json"]),
     ) as SessionExport;
-    expect(json.schema_version).toBe("1.1.0");
+    expect(json.schema_version).toBe("1.2.0");
     expect(json.timeline.length).toBe(6);
     expect(json.summary.total_events).toBe(6);
   });
@@ -259,6 +260,67 @@ describe("agents.md in export", () => {
     expect(unzipped["session.json"]).toBeDefined();
     expect(unzipped["agents.md"]).toBeDefined();
     expect(unzipped["screenshots/ss_1.png"]).toBeDefined();
+  });
+});
+
+describe("feature-11 schema additions", () => {
+  it("exports session.status field verbatim", () => {
+    const session = makeSession({ status: "stopped" });
+    const zipBytes = exportSession(session, [], {});
+    const unzipped = unzipSync(zipBytes);
+    const json = JSON.parse(strFromU8(unzipped["session.json"]));
+    expect(json.session.status).toBe("stopped");
+  });
+
+  it("round-trips lifecycle markers through the timeline without crashing", () => {
+    const session = makeSession();
+    const events: TimelineEvent[] = [
+      ...makeEvents(),
+      {
+        seq: 7,
+        timestamp: "2026-04-06T10:00:07.000Z",
+        type: "session_paused",
+        page_url: "https://example.com/form",
+      },
+      {
+        seq: 8,
+        timestamp: "2026-04-06T10:00:09.000Z",
+        type: "session_resumed",
+        page_url: "https://example.com/form",
+      },
+    ];
+    const zipBytes = exportSession(session, events, {});
+    const unzipped = unzipSync(zipBytes);
+    const json = JSON.parse(
+      strFromU8(unzipped["session.json"]),
+    ) as SessionExport;
+    expect(json.timeline.length).toBe(8);
+    // Markers land in the correct spots.
+    expect(json.timeline[6].type).toBe("session_paused");
+    expect(json.timeline[7].type).toBe("session_resumed");
+  });
+
+  it("buildSummary counts lifecycle markers in total_events", () => {
+    const events: TimelineEvent[] = [
+      {
+        seq: 1,
+        timestamp: "2026-04-06T10:00:00.000Z",
+        type: "session_paused",
+        page_url: "https://example.com",
+      },
+      {
+        seq: 2,
+        timestamp: "2026-04-06T10:00:01.000Z",
+        type: "session_resumed",
+        page_url: "https://example.com",
+      },
+    ];
+    const summary = buildSummary(events);
+    expect(summary.total_events).toBe(2);
+    // But they aren't categorised in any specific bucket.
+    expect(summary.annotations).toBe(0);
+    expect(summary.console_errors).toBe(0);
+    expect(summary.screenshots).toBe(0);
   });
 });
 

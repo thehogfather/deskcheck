@@ -18,6 +18,8 @@ const EXPECTED_DISCRIMINATORS: ReadonlySet<TimelineEvent["type"]> = new Set([
   "js_exception",
   "annotation",
   "screenshot",
+  "session_paused",
+  "session_resumed",
 ]);
 
 const SESSION_METADATA_FIELDS = [
@@ -28,11 +30,12 @@ const SESSION_METADATA_FIELDS = [
   "initial_url",
   "user_agent",
   "viewport",
+  "status",
 ] as const;
 
 describe("SCHEMA_VERSION", () => {
-  it("is the bumped 1.1.0 minor version (additive zip layout change)", () => {
-    expect(SCHEMA_VERSION).toBe("1.1.0");
+  it("is bumped to 1.2.0 for the additive status + lifecycle-marker schema change", () => {
+    expect(SCHEMA_VERSION).toBe("1.2.0");
   });
 });
 

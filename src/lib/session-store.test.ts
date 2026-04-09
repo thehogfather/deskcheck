@@ -26,6 +26,7 @@ function makeMetadata(overrides: Partial<SessionMetadata> = {}): SessionMetadata
     user_agent: "TestAgent/1.0",
     viewport: { width: 1280, height: 720 },
     pii_mode: "full",
+    status: "running",
     ...overrides,
   };
 }

@@ -118,31 +118,44 @@ async function getMetrics(
 }
 
 test.describe("Side panel UI", () => {
-  test("idle state shows Start, hides Pause/Stop and pre-export reminder", async ({
+  test("idle state shows Start + empty-state hint; interaction controls are absent from the DOM (feature #11 hide-not-disable)", async ({
     context,
     extensionId,
   }) => {
     const panel = await openSidePanelPage(context, extensionId);
 
     await expect(panel.locator("#start-btn")).toBeVisible();
-    await expect(panel.locator("#pause-btn")).toBeHidden();
-    await expect(panel.locator("#stop-btn")).toBeHidden();
 
-    // The pre-export reminder is in the DOM but hidden until the user
-    // clicks Stop. The .hidden class drives display: none via CSS.
-    await expect(panel.locator("#pre-export-reminder")).toHaveClass(
-      /\bhidden\b/,
-    );
+    // Feature #11: the pre-export reminder is absent from the DOM in
+    // idle state — it's only mounted when the stop button is present
+    // (i.e., during an active session). This is consistent with the
+    // hide-not-disable principle.
+    await expect(panel.locator("#pre-export-reminder")).toHaveCount(0);
 
-    // PII mode controls and annotation affordances are always mounted.
+    // PII mode fieldset, metrics row, and empty-state hint are always
+    // mounted pre-session.
     await expect(panel.locator("#pii-mode-fieldset")).toBeAttached();
-    await expect(panel.locator("#annotation-text")).toBeVisible();
-    await expect(panel.locator("#add-note-btn")).toBeVisible();
-    await expect(panel.locator("#screenshot-btn")).toBeVisible();
-    await expect(panel.locator("#pick-element-btn")).toBeVisible();
+    await expect(panel.locator("#metrics-row")).toBeAttached();
+    await expect(panel.locator("#empty-state-hint")).toBeVisible();
+
+    // Feature #11 — annotation, screenshot, picker, and lifecycle
+    // controls are STRUCTURALLY ABSENT from the DOM pre-session, not
+    // toggled via display:none. "Absent from the DOM" is what the DoD
+    // requires, so assert not-attached rather than not-visible.
+    for (const id of [
+      "annotation-text",
+      "add-note-btn",
+      "screenshot-btn",
+      "pick-element-btn",
+      "pause-btn",
+      "stop-btn",
+      "discard-btn",
+    ]) {
+      await expect(panel.locator(`#${id}`)).toHaveCount(0);
+    }
   });
 
-  test("active state shows Pause/Stop, hides Start", async ({
+  test("active state shows Pause/Stop/Discard, hides Start (feature #11)", async ({
     context,
     extensionId,
   }) => {
@@ -152,9 +165,12 @@ test.describe("Side panel UI", () => {
     await startSessionOnTab(context, extensionId, TEST_PAGE);
 
     const panel = await openSidePanelPage(context, extensionId);
-    await expect(panel.locator("#start-btn")).toBeHidden();
+    // Start is absent from the DOM during an active session.
+    await expect(panel.locator("#start-btn")).toHaveCount(0);
     await expect(panel.locator("#pause-btn")).toBeVisible();
     await expect(panel.locator("#stop-btn")).toBeVisible();
+    await expect(panel.locator("#discard-btn")).toBeVisible();
+    await expect(panel.locator("#annotation-text")).toBeVisible();
 
     await panel.close();
     await stopSession(context, extensionId);

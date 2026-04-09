@@ -361,3 +361,72 @@ html, body {
 .sp-btn.danger:hover:not(:disabled) {
   background: #dc2626;
 }
+
+/* ── Feature #11: empty-state hint, loading, chip, discard dialog ── */
+
+.empty-state-hint {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
+/* Visually subdue a button that's mid-async. The .sp-btn:disabled rule
+ * already handles the core feedback; the aria-busy hook lets
+ * accessibility tools pick it up and gives us a specific target for
+ * any future spinner. */
+.sp-btn[aria-busy="true"] {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.async-error {
+  margin: 0;
+  min-height: 1em;
+  font-size: 11px;
+  color: var(--danger);
+  word-break: break-word;
+}
+
+.async-error:empty {
+  display: none;
+}
+
+/* Events list is position: relative so the chip can float at the
+ * bottom. The chip uses sticky positioning so it stays visible as
+ * the user scrolls. */
+#events-list {
+  position: relative;
+}
+
+.new-events-chip {
+  position: sticky;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: block;
+  margin: 0 auto;
+  padding: 6px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.new-events-chip:hover {
+  background: var(--accent-hover);
+}
+
+/* Discard confirmation shares the pre-export reminder structure but
+ * uses a danger colour scheme instead of warning. */
+#discard-confirm-dialog {
+  border-color: var(--danger);
+}

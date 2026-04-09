@@ -11,6 +11,7 @@ import {
   buildScreenshotEvent,
   dataUrlToPngBytes,
 } from "./screenshot";
+import { nextStatus, type SessionStatus } from "../lib/session-status";
 
 const debuggerClient = new DebuggerClient();
 // One SessionStore instance owns all persistence for the worker. Its
@@ -48,10 +49,13 @@ async function appendEventBroadcast(
   return enriched;
 }
 
-let recording = false;
-let paused = false;
+let currentStatus: SessionStatus = "idle";
 let activeTabId: number | null = null;
 let activeSessionId: string | null = null;
+
+function isSessionInFlight(): boolean {
+  return currentStatus === "running" || currentStatus === "paused";
+}
 
 // Debug buffer: the sidepanel entry posts visibility change events
 // here so e2e tests can verify whether Chrome is actually hiding the
@@ -219,7 +223,7 @@ chrome.action.onClicked.addListener((tab) => {
   // If a session is already active, route the click back to the
   // recording tab — never open a second panel elsewhere mid-session.
   const targetTabId =
-    recording && activeTabId != null ? activeTabId : tab.id;
+    isSessionInFlight() && activeTabId != null ? activeTabId : tab.id;
 
   // Fire both calls synchronously inside the gesture window.
   void enablePanelOnTab(targetTabId);
@@ -261,6 +265,7 @@ function buildSessionMetadata(
     user_agent: navigator.userAgent,
     viewport,
     pii_mode: piiMode,
+    status: "running",
   };
 }
 
@@ -269,10 +274,17 @@ function buildSessionMetadata(
 async function restoreState() {
   const session = await store.ensureReady();
   if (session && !session.end_time) {
-    recording = true;
+    currentStatus = session.status ?? "running";
     activeSessionId = session.id;
     activeTabId = session.tab_id;
     setBadge(true);
+  } else if (session && session.end_time) {
+    currentStatus = "stopped";
+    activeSessionId = session.id;
+    setBadge(false);
+  } else {
+    currentStatus = "idle";
+    setBadge(false);
   }
 }
 
@@ -326,8 +338,9 @@ async function handleMessage(
     case "GET_SESSION_STATE": {
       const storedSession = await store.getSession();
       return {
-        recording,
-        paused,
+        recording: isSessionInFlight(),
+        paused: currentStatus === "paused",
+        status: currentStatus,
         sessionId: activeSessionId,
         activeTabId,
         hasExportableSession: storedSession != null,
@@ -336,18 +349,71 @@ async function handleMessage(
     }
 
     case "PAUSE_SESSION": {
-      if (recording) paused = true;
-      return { paused };
+      const transition = nextStatus(currentStatus, "pause");
+      if (!transition.ok) return { status: currentStatus };
+      const session = await store.getSession();
+      if (session) {
+        await appendEventBroadcast({
+          type: "session_paused",
+          timestamp: new Date().toISOString(),
+          page_url: session.initial_url,
+        });
+        await store.updateSession({ status: "paused" });
+      }
+      currentStatus = "paused";
+      return { status: currentStatus, paused: true };
     }
 
     case "RESUME_SESSION": {
-      paused = false;
-      return { paused };
+      const transition = nextStatus(currentStatus, "resume");
+      if (!transition.ok) return { status: currentStatus };
+      const session = await store.getSession();
+      if (session) {
+        await appendEventBroadcast({
+          type: "session_resumed",
+          timestamp: new Date().toISOString(),
+          page_url: session.initial_url,
+        });
+        await store.updateSession({ status: "running" });
+      }
+      currentStatus = "running";
+      return { status: currentStatus, paused: false };
+    }
+
+    case "DISCARD_SESSION": {
+      const transition = nextStatus(currentStatus, "discard");
+      if (!transition.ok) return { status: currentStatus, discarded: false };
+      const tabToNotify = activeTabId;
+      try {
+        await debuggerClient.detach();
+      } catch (e) {
+        console.warn("[DeskCheck] discard: detach failed (continuing):", e);
+      }
+      await store.deleteSession();
+      broadcastToPanels({ type: "SESSION_CLEARED" });
+      currentStatus = "idle";
+      activeSessionId = null;
+      activeTabId = null;
+      setBadge(false);
+      if (tabToNotify != null) {
+        await chrome.tabs.sendMessage(tabToNotify, { type: "SESSION_STOPPED" }).catch(() => {});
+      }
+      return { status: currentStatus, discarded: true };
+    }
+
+    case "RESET_SESSION": {
+      const transition = nextStatus(currentStatus, "reset");
+      if (!transition.ok) return { status: currentStatus, reset: false };
+      await store.deleteSession();
+      broadcastToPanels({ type: "SESSION_CLEARED" });
+      currentStatus = "idle";
+      activeSessionId = null;
+      return { status: currentStatus, reset: true };
     }
 
     case "GET_SESSION_METRICS": {
       const session = await store.getSession();
-      if (!session || !recording) {
+      if (!session || !isSessionInFlight()) {
         return {
           startTime: "",
           eventCount: 0,
@@ -371,12 +437,14 @@ async function handleMessage(
     }
 
     case "START_SESSION": {
+      const startTransition = nextStatus(currentStatus, "start");
+      if (!startTransition.ok) return { recording: true, sessionId: activeSessionId, warnings: [] };
       activeTabId = msg.tabId;
       const piiMode = parsePiiMode(msg.piiMode);
       const session = await store.createSession(
         buildSessionMetadata(msg.tabId, msg.url, msg.viewport, piiMode),
       );
-      recording = true;
+      currentStatus = "running";
       activeSessionId = session.id;
       setBadge(true);
       // Panel binding is NOT touched here. Under the bind-on-open
@@ -387,14 +455,11 @@ async function handleMessage(
 
       const warnings: string[] = [];
 
-      paused = false;
       if (activeTabId) {
         try {
           await debuggerClient.attach(activeTabId, msg.url, (event) => {
-            // CDP events are dropped while paused. Manual actions
-            // (TAKE_SCREENSHOT, ADD_ANNOTATION) bypass this gate
-            // because they are explicit user intent.
-            if (paused) return;
+            // CDP events are dropped while paused or stopped.
+            if (currentStatus !== "running") return;
             void appendEventBroadcast(event);
           });
         } catch (e) {
@@ -431,6 +496,8 @@ async function handleMessage(
     }
 
     case "STOP_SESSION": {
+      const stopTransition = nextStatus(currentStatus, "stop");
+      if (!stopTransition.ok) return { recording: false, sessionId: activeSessionId };
       const tabToNotify = sender.tab?.id ?? activeTabId;
       await debuggerClient.detach();
       const now = new Date();
@@ -440,12 +507,11 @@ async function handleMessage(
           end_time: now.toISOString(),
           duration_ms:
             now.getTime() - new Date(existing.start_time).getTime(),
+          status: "stopped",
         });
       }
-      recording = false;
-      paused = false;
+      currentStatus = "stopped";
       const stoppedSessionId = activeSessionId;
-      activeSessionId = null;
       activeTabId = null;
       setBadge(false);
       // Panel stays bound so the user can still see the post-session
@@ -463,8 +529,7 @@ async function handleMessage(
     }
 
     case "RECORD_EVENT": {
-      if (!recording) return;
-      if (paused) return;
+      if (currentStatus !== "running") return;
       if (sender.tab?.id && sender.tab.id !== activeTabId) return;
       if (
         msg.event.type === "interaction" &&
@@ -494,7 +559,7 @@ async function handleMessage(
     }
 
     case "ADD_ANNOTATION": {
-      if (!recording || !activeTabId) return;
+      if (!isSessionInFlight() || !activeTabId) return;
       // Annotation-attached screenshots are stored but not appended as
       // standalone timeline events — they live inline on the annotation
       // row in the side panel. Avoids the duplicate-row noise the
@@ -588,6 +653,8 @@ async function handleMessage(
       // concern like there would be with a blob URL.
       await store.deleteSession();
       broadcastToPanels({ type: "SESSION_CLEARED" });
+      currentStatus = "idle";
+      activeSessionId = null;
       return { filename };
     }
   }
@@ -625,7 +692,7 @@ function bytesToPngDataUrl(bytes: Uint8Array): string {
 // ── Keyboard shortcuts ──
 
 chrome.commands.onCommand.addListener(async (command) => {
-  if (command === "take-screenshot" && recording && activeTabId) {
+  if (command === "take-screenshot" && isSessionInFlight() && activeTabId) {
     const captured = await captureAndPersistScreenshot(store, activeTabId);
     if (captured) {
       broadcastToPanels({
@@ -655,7 +722,7 @@ chrome.commands.onCommand.addListener(async (command) => {
   if (command === "toggle-session") {
     const tab = await getActiveTab();
     if (!tab?.id) return;
-    if (recording) {
+    if (isSessionInFlight()) {
       await handleMessage({ type: "STOP_SESSION" }, { tab } as any);
       return;
     }
@@ -684,7 +751,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 // ── Tab close handling ──
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
-  if (tabId === activeTabId && recording) {
+  if (tabId === activeTabId && isSessionInFlight()) {
     try {
       await debuggerClient.detach();
       const session = await store.getSession();
@@ -694,13 +761,13 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
           end_time: now.toISOString(),
           duration_ms:
             now.getTime() - new Date(session.start_time).getTime(),
+          status: "stopped",
         });
       }
     } catch (e) {
       console.error("[DeskCheck] Error during tab close cleanup:", e);
     } finally {
-      recording = false;
-      activeSessionId = null;
+      currentStatus = "stopped";
       activeTabId = null;
       setBadge(false);
     }
