@@ -251,7 +251,7 @@ export async function mountSidePanel(
   const stopBtn = iconBtn("stop-btn", "sp-btn primary", "\u2913", "Download");
   const discardBtn = iconBtn("discard-btn", "sp-btn danger", "\u2715", "Discard");
   const resetBtn = iconBtn("reset-btn", "sp-btn", "\u21BA", "Reset");
-  const pickElementBtn = iconBtn("pick-element-btn", "sp-btn", "\u2316", "");
+  const pickElementBtn = iconBtn("pick-element-btn", "sp-btn", "\u2316", "select");
 
   const annotationText = el("textarea", {
     id: "annotation-text",

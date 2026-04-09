@@ -390,25 +390,38 @@ html, body {
   right: 4px;
   bottom: 4px;
   flex: 0;
-  padding: 4px 6px;
-  font-size: 11px;
+  padding: 3px 6px;
   border: none;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.annotation-wrapper #pick-element-btn .btn-icon {
+  font-size: 16px;
+  margin-right: 0;
+}
+
+.annotation-wrapper #pick-element-btn .btn-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .annotation-wrapper #pick-element-btn:hover {
   color: var(--accent);
   background: var(--bg-elev-2);
-  border-radius: 4px;
 }
 
 .annotation-wrapper #pick-element-btn.picker-active {
   color: var(--accent);
   background: var(--bg-elev-2);
-  border-radius: 4px;
   box-shadow: inset 0 0 0 1px var(--accent);
+  cursor: crosshair;
 }
 
 /* ── Feature #12: button icon + label structure ── */
