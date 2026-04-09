@@ -64,6 +64,14 @@
       "branch": "feature/feature-11",
       "status": "completed",
       "released_at": "2026-04-08T23:18:40.237063+00:00"
+    },
+    {
+      "feature_id": "feature-12",
+      "feature_title": "Side panel control layout refinement",
+      "claimed_by": "orch-20260409-132701-71903",
+      "claimed_at": "2026-04-09T12:27:01.882399+00:00",
+      "branch": "feature/feature-12",
+      "status": "active"
     }
   ]
 }
