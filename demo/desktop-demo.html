@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeskCheck — Desktop Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a2e;
+      overflow: hidden;
+    }
+
+    /* ── Chrome-like window frame ────────────────────────────────── */
+    .browser-frame {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      background: #202124;
+      border-radius: 10px 10px 0 0;
+      overflow: hidden;
+    }
+
+    .title-bar {
+      display: flex;
+      align-items: center;
+      height: 38px;
+      background: #35363a;
+      padding: 0 12px;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .window-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .dot.close { background: #ff5f57; }
+    .dot.min { background: #febc2e; }
+    .dot.max { background: #28c840; }
+
+    .tab-bar {
+      display: flex;
+      align-items: flex-end;
+      height: 36px;
+      background: #202124;
+      padding: 0 8px;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .tab {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 30px;
+      padding: 0 14px;
+      border-radius: 8px 8px 0 0;
+      font-size: 12px;
+      color: #9aa0a6;
+      background: #35363a;
+      cursor: default;
+      max-width: 220px;
+    }
+
+    .tab.active {
+      background: #292a2d;
+      color: #e8eaed;
+    }
+
+    .tab-favicon {
+      width: 14px;
+      height: 14px;
+      border-radius: 2px;
+      background: #4285f4;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .tab-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .url-bar {
+      display: flex;
+      align-items: center;
+      height: 36px;
+      background: #292a2d;
+      padding: 0 12px;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .url-bar-nav {
+      display: flex;
+      gap: 4px;
+      color: #9aa0a6;
+      font-size: 16px;
+    }
+
+    .url-bar-nav span {
+      cursor: default;
+      padding: 2px 4px;
+    }
+
+    .url-field {
+      flex: 1;
+      height: 26px;
+      background: #35363a;
+      border: none;
+      border-radius: 13px;
+      padding: 0 14px;
+      font-size: 13px;
+      color: #e8eaed;
+      font-family: inherit;
+      outline: none;
+    }
+
+    .deskcheck-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      background: #3b82f6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 11px;
+      color: #fff;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .deskcheck-icon.recording {
+      background: #ef4444;
+      animation: pulse-icon 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-icon {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+      50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
+    }
+
+    /* ── Main content area: page + side panel ────────────────────── */
+    .content-area {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Fake web app (left) ─────────────────────────────────────── */
+    .web-app {
+      flex: 1;
+      background: #f8fafc;
+      overflow-y: auto;
+      font-size: 14px;
+      color: #1e293b;
+    }
+
+    .app-nav {
+      display: flex;
+      align-items: center;
+      height: 52px;
+      background: #fff;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 0 24px;
+      gap: 24px;
+    }
+
+    .app-logo {
+      font-weight: 700;
+      font-size: 16px;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .app-logo-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 14px;
+    }
+
+    .app-nav-links {
+      display: flex;
+      gap: 16px;
+      font-size: 13px;
+    }
+
+    .app-nav-links a {
+      color: #64748b;
+      text-decoration: none;
+      padding: 4px 0;
+    }
+
+    .app-nav-links a.active {
+      color: #6366f1;
+      font-weight: 500;
+      border-bottom: 2px solid #6366f1;
+    }
+
+    .app-content {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 28px 24px;
+    }
+
+    .app-content h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: #0f172a;
+      margin-bottom: 6px;
+    }
+
+    .app-content .subtitle {
+      font-size: 13px;
+      color: #64748b;
+      margin-bottom: 24px;
+    }
+
+    /* Order table */
+    .order-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+      background: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+    }
+
+    .order-table th {
+      background: #f8fafc;
+      font-size: 11px;
+      font-weight: 600;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .order-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 13px;
+    }
+
+    .order-table tr:last-child td { border-bottom: none; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .badge.pending { background: #fef3c7; color: #92400e; }
+    .badge.shipped { background: #d1fae5; color: #065f46; }
+    .badge.error { background: #fee2e2; color: #991b1b; }
+
+    .order-total {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 0;
+      font-size: 14px;
+    }
+
+    .order-total .total-label {
+      color: #64748b;
+      font-weight: 500;
+    }
+
+    .order-total .total-value {
+      font-weight: 700;
+      font-size: 18px;
+      color: #0f172a;
+    }
+
+    .submit-row {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .app-btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+      color: #334155;
+      font-family: inherit;
+    }
+
+    .app-btn.primary {
+      background: #6366f1;
+      color: #fff;
+      border-color: #6366f1;
+    }
+
+    /* Error toast */
+    .error-toast {
+      position: fixed;
+      bottom: -60px;
+      left: 50%;
+      transform: translateX(-80%);
+      background: #991b1b;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      transition: bottom 0.3s ease;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .error-toast.visible {
+      bottom: 24px;
+    }
+
+    .error-toast .toast-icon {
+      font-size: 16px;
+    }
+
+    /* Click ripple effect on the web page */
+    .click-ripple {
+      position: fixed;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: rgba(99, 102, 241, 0.3);
+      border: 2px solid rgba(99, 102, 241, 0.6);
+      pointer-events: none;
+      transform: translate(-50%, -50%) scale(0.5);
+      animation: ripple 0.5s ease-out forwards;
+      z-index: 200;
+    }
+
+    @keyframes ripple {
+      0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+    }
+
+    /* ── Side panel divider ──────────────────────────────────────── */
+    .panel-divider {
+      width: 1px;
+      background: #3f3f46;
+      flex-shrink: 0;
+    }
+
+    /* ── Side panel (right) ──────────────────────────────────────── */
+    .side-panel {
+      width: 340px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      --bg: #0f172a;
+      --bg-elev: #1e293b;
+      --bg-elev-2: #334155;
+      --border: #334155;
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --success: #10b981;
+      --annotation: #a855f7;
+      --screenshot: #06b6d4;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .sp-toolbar {
+      flex: 0 0 auto;
+      background: var(--bg-elev);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .sp-events {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 8px;
+      background: var(--bg);
+    }
+
+    .sp-controls {
+      flex: 0 0 auto;
+      background: var(--bg-elev);
+      border-top: 1px solid var(--border);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .sp-metrics-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .sp-row { display: flex; gap: 8px; }
+
+    .sp-btn {
+      flex: 1;
+      padding: 8px 12px;
+      background: var(--bg-elev-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sp-btn.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .sp-btn.danger {
+      background: var(--danger);
+      color: #fff;
+      border-color: var(--danger);
+    }
+
+    .sp-btn .btn-icon { margin-right: 4px; font-size: 13px; line-height: 1; }
+
+    .event-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: baseline;
+      padding: 6px 10px;
+      margin-bottom: 4px;
+      background: var(--bg-elev);
+      border-left: 3px solid var(--bg-elev-2);
+      border-radius: 4px;
+      font-size: 12px;
+      opacity: 0;
+      transform: translateY(6px);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+
+    .event-row.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .event-row.accent-danger { border-left-color: var(--danger); }
+    .event-row.accent-warning { border-left-color: var(--warning); }
+    .event-row.accent-info { border-left-color: var(--accent); }
+    .event-row.accent-annotation { border-left-color: var(--annotation); }
+    .event-row.accent-screenshot { border-left-color: var(--screenshot); }
+
+    .event-time { color: var(--text-dim); font-variant-numeric: tabular-nums; font-size: 11px; flex: 0 0 auto; }
+    .event-label { color: var(--text); font-weight: 500; flex: 0 0 auto; }
+    .event-detail { color: var(--text-dim); flex: 1 1 auto; word-break: break-word; }
+
+    .sp-empty-hint {
+      padding: 10px 12px;
+      font-size: 12px;
+      color: var(--text-dim);
+      text-align: center;
+      border: 1px dashed var(--border);
+      border-radius: 6px;
+    }
+
+    .sp-pii-fieldset {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px 8px;
+      margin: 0;
+    }
+
+    .sp-pii-fieldset legend {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0 4px;
+    }
+
+    .pii-mode-option {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text);
+      cursor: pointer;
+      padding: 2px 0;
+    }
+
+    .pii-mode-option .hint {
+      color: var(--text-dim);
+      font-size: 11px;
+      margin-left: auto;
+    }
+
+    .sp-annotation-wrapper {
+      position: relative;
+      width: 100%;
+    }
+
+    .sp-annotation-wrapper textarea {
+      width: 100%;
+      min-height: 56px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      padding-right: 36px;
+      font-family: inherit;
+      font-size: 12px;
+      resize: vertical;
+      outline: none;
+    }
+
+    .sp-annotation-wrapper textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .sp-pick-btn {
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      padding: 3px 6px;
+      border: none;
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      font-family: inherit;
+    }
+
+    .sp-pick-btn .btn-icon { font-size: 16px; margin-right: 0; }
+    .sp-pick-btn .btn-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+    .sp-pre-export {
+      background: var(--bg);
+      border: 1px solid var(--warning);
+      border-radius: 6px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 0 12px 12px;
+    }
+
+    .sp-pre-export p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="browser-frame">
+    <!-- Title bar -->
+    <div class="title-bar">
+      <div class="window-dots">
+        <div class="dot close"></div>
+        <div class="dot min"></div>
+        <div class="dot max"></div>
+      </div>
+    </div>
+
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <div class="tab active">
+        <div class="tab-favicon">A</div>
+        <span class="tab-title">Orders — Acme Dashboard</span>
+      </div>
+      <div class="tab">
+        <div class="tab-favicon" style="background:#34a853;">G</div>
+        <span class="tab-title">Google Docs</span>
+      </div>
+    </div>
+
+    <!-- URL bar -->
+    <div class="url-bar">
+      <div class="url-bar-nav">
+        <span>&#8592;</span>
+        <span>&#8594;</span>
+        <span>&#8635;</span>
+      </div>
+      <input type="text" class="url-field" id="url-field" value="app.example.com/orders" readonly>
+      <div class="deskcheck-icon" id="deskcheck-icon">DC</div>
+    </div>
+
+    <!-- Content area: web app + side panel -->
+    <div class="content-area">
+      <!-- Fake web application -->
+      <div class="web-app" id="web-app">
+        <nav class="app-nav">
+          <div class="app-logo">
+            <div class="app-logo-icon">A</div>
+            Acme Dashboard
+          </div>
+          <div class="app-nav-links">
+            <a href="#">Home</a>
+            <a href="#" class="active">Orders</a>
+            <a href="#">Products</a>
+            <a href="#">Customers</a>
+            <a href="#" id="settings-link">Settings</a>
+          </div>
+        </nav>
+
+        <div class="app-content" id="app-content">
+          <h1>Order #10482</h1>
+          <p class="subtitle">Created Apr 9, 2026 &middot; 4 items</p>
+
+          <table class="order-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Qty</th>
+                <th>Price</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Widget Pro (Blue)</td>
+                <td>2</td>
+                <td>$29.99</td>
+                <td><span class="badge shipped">Shipped</span></td>
+              </tr>
+              <tr>
+                <td>Gadget Max</td>
+                <td>1</td>
+                <td>$49.99</td>
+                <td><span class="badge pending">Pending</span></td>
+              </tr>
+              <tr>
+                <td>Cable Adapter (USB-C)</td>
+                <td>3</td>
+                <td>$12.99</td>
+                <td><span class="badge pending">Pending</span></td>
+              </tr>
+              <tr>
+                <td>Screen Protector</td>
+                <td>1</td>
+                <td>$8.99</td>
+                <td><span class="badge error">Failed</span></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="order-total">
+            <span class="total-label">Total</span>
+            <span class="total-value">$157.93</span>
+          </div>
+
+          <div class="submit-row">
+            <button class="app-btn" id="cancel-order-btn">Cancel order</button>
+            <button class="app-btn primary" id="submit-order-btn">Submit order</button>
+          </div>
+        </div>
+
+        <!-- Error toast -->
+        <div class="error-toast" id="error-toast">
+          <span class="toast-icon">&#9888;</span>
+          <span>Error 500: Failed to submit order. Please try again.</span>
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div class="panel-divider"></div>
+
+      <!-- DeskCheck side panel -->
+      <div class="side-panel" id="side-panel">
+        <div class="sp-toolbar">
+          <div class="sp-metrics-row">
+            <span id="sp-duration">0:00</span>
+            <span> &middot; </span>
+            <span id="sp-event-count">0 events</span>
+            <span> &middot; </span>
+            <span id="sp-data-size">0 KB</span>
+          </div>
+          <div class="sp-row" id="sp-lifecycle-row">
+            <button class="sp-btn primary" id="sp-start-btn">
+              <span class="btn-icon">&#9654;&#65038;</span>
+              <span class="btn-label">Start session</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="sp-events" id="sp-events">
+          <div class="sp-empty-hint" id="sp-empty-hint">
+            Start a session to begin capturing.
+          </div>
+        </div>
+
+        <div class="sp-controls" id="sp-controls">
+          <fieldset class="sp-pii-fieldset">
+            <legend>PII capture mode</legend>
+            <label class="pii-mode-option">
+              <input type="radio" name="pii-mode" value="full" checked>
+              Full capture <span class="hint">for internal tools</span>
+            </label>
+            <label class="pii-mode-option">
+              <input type="radio" name="pii-mode" value="masked">
+              Mask inputs <span class="hint">passwords always masked</span>
+            </label>
+            <label class="pii-mode-option">
+              <input type="radio" name="pii-mode" value="redacted">
+              Redact all <span class="hint">no PII in export</span>
+            </label>
+          </fieldset>
+        </div>
+
+        <div class="sp-pre-export hidden" id="sp-pre-export">
+          <p>This export may contain screenshots and form inputs that are sensitive. Review before sharing.</p>
+          <div class="sp-row">
+            <button class="sp-btn" id="sp-keep-btn">Keep recording</button>
+            <button class="sp-btn danger" id="sp-download-btn">Download</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── Demo event data ─────────────────────────────────────────
+    var demoEvents = [
+      { time: "14:23:01", label: "Navigate", detail: "https://app.example.com/orders", accent: "neutral" },
+      { time: "14:23:03", label: "Click", detail: "button.submit-order-btn", accent: "neutral" },
+      { time: "14:23:04", label: "Network error", detail: "POST /api/v2/orders (500)", accent: "danger" },
+      { time: "14:23:04", label: "Console error", detail: "Uncaught TypeError: Cannot read properties of undefined (reading 'items')", accent: "danger" },
+      { time: "14:23:06", label: "Click", detail: "a.retry-link", accent: "neutral" },
+      { time: "14:23:07", label: "Network error", detail: "POST /api/v2/orders (500)", accent: "danger" },
+      { time: "14:23:09", label: "Console warning", detail: "Rate limit approaching: 95% of quota used", accent: "warning" },
+      { time: "14:23:12", label: "Screenshot", detail: "manual", accent: "screenshot" },
+      { time: "14:23:15", label: "Annotation", detail: "Bug: clicking Submit on the order form returns a 500. Happens consistently after adding 3+ items to cart.", accent: "annotation" },
+      { time: "14:23:18", label: "Click", detail: "nav > a.settings", accent: "neutral" },
+      { time: "14:23:19", label: "Navigate", detail: "https://app.example.com/settings", accent: "neutral" },
+      { time: "14:23:21", label: "Input", detail: "12 chars (2 words)", accent: "neutral" },
+      { time: "14:23:23", label: "JS exception", detail: "RangeError: Maximum call stack size exceeded", accent: "danger" },
+    ];
+
+    // ── DOM helpers (safe, no innerHTML) ─────────────────────────
+    function createEventRow(event) {
+      var row = document.createElement('div');
+      row.className = 'event-row accent-' + event.accent;
+
+      var timeSpan = document.createElement('span');
+      timeSpan.className = 'event-time';
+      timeSpan.textContent = event.time;
+
+      var labelSpan = document.createElement('span');
+      labelSpan.className = 'event-label';
+      labelSpan.textContent = event.label;
+
+      var detailSpan = document.createElement('span');
+      detailSpan.className = 'event-detail';
+      detailSpan.textContent = event.detail;
+
+      row.appendChild(timeSpan);
+      row.appendChild(labelSpan);
+      row.appendChild(detailSpan);
+      return row;
+    }
+
+    function createSpBtn(id, cls, icon, label) {
+      var btn = document.createElement('button');
+      btn.id = id;
+      btn.className = 'sp-btn ' + cls;
+      var iconEl = document.createElement('span');
+      iconEl.className = 'btn-icon';
+      iconEl.textContent = icon;
+      var labelEl = document.createElement('span');
+      labelEl.className = 'btn-label';
+      labelEl.textContent = label;
+      btn.appendChild(iconEl);
+      btn.appendChild(labelEl);
+      return btn;
+    }
+
+    function showClickRipple(x, y) {
+      var ripple = document.createElement('div');
+      ripple.className = 'click-ripple';
+      ripple.style.left = x + 'px';
+      ripple.style.top = y + 'px';
+      document.body.appendChild(ripple);
+      setTimeout(function() { ripple.remove(); }, 500);
+    }
+
+    // ── State ────────────────────────────────────────────────────
+    var currentEventIndex = 0;
+    var elapsedSeconds = 0;
+    var timerInterval = null;
+
+    var spEvents = document.getElementById('sp-events');
+    var spEmptyHint = document.getElementById('sp-empty-hint');
+    var spLifecycleRow = document.getElementById('sp-lifecycle-row');
+    var spControls = document.getElementById('sp-controls');
+    var spDuration = document.getElementById('sp-duration');
+    var spEventCount = document.getElementById('sp-event-count');
+    var spDataSize = document.getElementById('sp-data-size');
+    var deskchecKIcon = document.getElementById('deskcheck-icon');
+
+    function formatDuration(secs) {
+      var m = Math.floor(secs / 60);
+      var s = secs % 60;
+      return m + ':' + s.toString().padStart(2, '0');
+    }
+
+    function updateMetrics() {
+      spDuration.textContent = formatDuration(elapsedSeconds);
+      spEventCount.textContent = currentEventIndex + ' event' + (currentEventIndex !== 1 ? 's' : '');
+      spDataSize.textContent = Math.round(currentEventIndex * 0.8 + 1) + ' KB';
+    }
+
+    function addEventRow(event) {
+      var row = createEventRow(event);
+      spEvents.appendChild(row);
+      requestAnimationFrame(function() {
+        requestAnimationFrame(function() {
+          row.classList.add('visible');
+        });
+      });
+      spEvents.scrollTop = spEvents.scrollHeight;
+    }
+
+    // ── API for Playwright ──────────────────────────────────────
+    window.demoAPI = {
+      startSession: function() {
+        spEmptyHint.classList.add('hidden');
+        deskchecKIcon.classList.add('recording');
+
+        // Replace Start with lifecycle buttons
+        while (spLifecycleRow.firstChild) spLifecycleRow.removeChild(spLifecycleRow.firstChild);
+        spLifecycleRow.appendChild(createSpBtn('sp-pause-btn', '', '\u275A\u275A', 'Pause'));
+        spLifecycleRow.appendChild(createSpBtn('sp-stop-btn', 'primary', '\u2913', 'Download'));
+        spLifecycleRow.appendChild(createSpBtn('sp-discard-btn', 'danger', '\u2715', 'Discard'));
+
+        // Add annotation area
+        var piiFieldset = spControls.querySelector('.sp-pii-fieldset');
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'sp-annotation-wrapper';
+        wrapper.id = 'sp-annotation-wrapper';
+        var textarea = document.createElement('textarea');
+        textarea.id = 'sp-annotation-text';
+        textarea.placeholder = 'What did you expect? What happened instead?';
+        wrapper.appendChild(textarea);
+        var pickBtn = document.createElement('button');
+        pickBtn.className = 'sp-pick-btn';
+        var pickIcon = document.createElement('span');
+        pickIcon.className = 'btn-icon';
+        pickIcon.textContent = '\u2316';
+        var pickLabel = document.createElement('span');
+        pickLabel.className = 'btn-label';
+        pickLabel.textContent = 'SELECT';
+        pickBtn.appendChild(pickIcon);
+        pickBtn.appendChild(pickLabel);
+        wrapper.appendChild(pickBtn);
+        spControls.insertBefore(wrapper, piiFieldset);
+
+        var noteRow = document.createElement('div');
+        noteRow.className = 'sp-row';
+        noteRow.id = 'sp-note-row';
+        noteRow.appendChild(createSpBtn('sp-screenshot-btn', '', '\uD83D\uDCF7', 'Screenshot'));
+        noteRow.appendChild(createSpBtn('sp-add-note-btn', 'primary', '\uFF0B', 'Add note'));
+        spControls.insertBefore(noteRow, piiFieldset);
+
+        elapsedSeconds = 0;
+        timerInterval = setInterval(function() {
+          elapsedSeconds++;
+          updateMetrics();
+        }, 1000);
+        updateMetrics();
+      },
+
+      addNextEvent: function() {
+        if (currentEventIndex < demoEvents.length) {
+          addEventRow(demoEvents[currentEventIndex]);
+          currentEventIndex++;
+          updateMetrics();
+          return true;
+        }
+        return false;
+      },
+
+      showErrorToast: function() {
+        document.getElementById('error-toast').classList.add('visible');
+      },
+
+      hideErrorToast: function() {
+        document.getElementById('error-toast').classList.remove('visible');
+      },
+
+      clickRipple: function(x, y) {
+        showClickRipple(x, y);
+      },
+
+      navigateToSettings: function() {
+        document.getElementById('url-field').value = 'app.example.com/settings';
+        // Highlight Settings link
+        var links = document.querySelectorAll('.app-nav-links a');
+        links.forEach(function(link) { link.classList.remove('active'); });
+        document.getElementById('settings-link').classList.add('active');
+        // Change page content
+        var content = document.getElementById('app-content');
+        while (content.firstChild) content.removeChild(content.firstChild);
+        var h1 = document.createElement('h1');
+        h1.textContent = 'Settings';
+        content.appendChild(h1);
+        var subtitle = document.createElement('p');
+        subtitle.className = 'subtitle';
+        subtitle.textContent = 'Account & preferences';
+        content.appendChild(subtitle);
+      },
+
+      typeAnnotation: function(text) {
+        var textarea = document.getElementById('sp-annotation-text');
+        if (textarea) textarea.value = text;
+      },
+
+      clickAddNote: function() {
+        var textarea = document.getElementById('sp-annotation-text');
+        if (textarea && textarea.value) {
+          addEventRow({
+            time: '14:23:' + (25 + currentEventIndex).toString(),
+            label: 'Annotation',
+            detail: textarea.value,
+            accent: 'annotation',
+          });
+          currentEventIndex++;
+          textarea.value = '';
+          updateMetrics();
+        }
+      },
+
+      showExportReminder: function() {
+        clearInterval(timerInterval);
+        document.getElementById('sp-pre-export').classList.remove('hidden');
+      },
+    };
+  </script>
+</body>
+</html>
