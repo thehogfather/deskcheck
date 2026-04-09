@@ -196,6 +196,7 @@ export async function mountSidePanel(
   let selectedPiiMode: PiiCaptureMode = deps.initialPiiMode ?? DEFAULT_PII_MODE;
   let selectedElement: ElementInfo | null = null;
   let selectedElementDpr: number = 1;
+  let pickerActive = false;
   let windowId: number = -1;
   let scrollDebounce: ReturnType<typeof setTimeout> | null = null;
 
@@ -245,18 +246,18 @@ export async function mountSidePanel(
     ]);
   }
 
-  const startBtn = iconBtn("start-btn", "sp-btn primary", "\u25B6", "Start session");
-  const pauseBtn = iconBtn("pause-btn", "sp-btn", "\u23F8", "Pause");
-  const stopBtn = iconBtn("stop-btn", "sp-btn danger", "\u23F9", "Stop & download");
-  const discardBtn = iconBtn("discard-btn", "sp-btn danger", "\uD83D\uDDD1", "Discard");
+  const startBtn = iconBtn("start-btn", "sp-btn primary", "\u25B6\uFE0E", "Start session");
+  const pauseBtn = iconBtn("pause-btn", "sp-btn", "\u275A\u275A", "Pause");
+  const stopBtn = iconBtn("stop-btn", "sp-btn primary", "\u2913", "Download");
+  const discardBtn = iconBtn("discard-btn", "sp-btn danger", "\u2715", "Discard");
   const resetBtn = iconBtn("reset-btn", "sp-btn", "\u21BA", "Reset");
-  const pickElementBtn = iconBtn("pick-element-btn", "sp-btn", "\uD83C\uDFAF", "Pick element");
+  const pickElementBtn = iconBtn("pick-element-btn", "sp-btn", "\u2316", "");
 
   const annotationText = el("textarea", {
     id: "annotation-text",
     placeholder: "What did you expect? What happened instead?",
   }) as HTMLTextAreaElement;
-  const addNoteBtn = iconBtn("add-note-btn", "sp-btn", "\uD83D\uDCDD", "Add note");
+  const addNoteBtn = iconBtn("add-note-btn", "sp-btn primary", "\u2795", "Add note");
 
   // Annotation wrapper — contains textarea + embedded picker icon.
   const annotationWrapper = el("div", { class: "annotation-wrapper" });
@@ -571,14 +572,20 @@ export async function mountSidePanel(
 
   pickElementBtn.addEventListener("click", async () => {
     try {
-      // The picker overlay lives in the recorded tab's content script.
-      // We message it directly via the active tab so the overlay
-      // appears on the right page even if the user has multiple tabs.
       const tab = await getActiveTab();
       if (!tab?.id) return;
-      await chrome.tabs.sendMessage(tab.id, { type: "START_ELEMENT_PICKER" });
+      if (pickerActive) {
+        // Cancel the active picker.
+        await chrome.tabs.sendMessage(tab.id, { type: "CANCEL_ELEMENT_PICKER" });
+        setPickerActive(false);
+      } else {
+        // Start the picker overlay in the recorded tab's content script.
+        await chrome.tabs.sendMessage(tab.id, { type: "START_ELEMENT_PICKER" });
+        setPickerActive(true);
+      }
     } catch {
       // Non-fatal — content script may not be injected on chrome:// pages.
+      setPickerActive(false);
     }
   });
 
@@ -817,11 +824,11 @@ export async function mountSidePanel(
     const pauseIcon = pauseBtn.querySelector(".btn-icon");
     const pauseLabel = pauseBtn.querySelector(".btn-label");
     if (status === "paused") {
-      if (pauseIcon) pauseIcon.textContent = "\u25B6";
+      if (pauseIcon) pauseIcon.textContent = "\u25B6\uFE0E";
       if (pauseLabel) pauseLabel.textContent = "Resume";
       pauseBtn.classList.add("primary");
     } else {
-      if (pauseIcon) pauseIcon.textContent = "\u23F8";
+      if (pauseIcon) pauseIcon.textContent = "\u275A\u275A";
       if (pauseLabel) pauseLabel.textContent = "Pause";
       pauseBtn.classList.remove("primary");
     }
@@ -904,7 +911,13 @@ export async function mountSidePanel(
     discardDialog.classList.add("hidden");
   }
 
+  function setPickerActive(active: boolean) {
+    pickerActive = active;
+    pickElementBtn.classList.toggle("picker-active", active);
+  }
+
   function onPickResult(element: ElementInfo | null, dpr: number) {
+    setPickerActive(false);
     if (!element) {
       clearSelectedElement();
       return;
@@ -924,6 +937,7 @@ export async function mountSidePanel(
   function clearSelectedElement() {
     selectedElement = null;
     selectedElementDpr = 1;
+    setPickerActive(false);
     elementChip.classList.add("hidden");
     clearChildren(elementChip);
   }
