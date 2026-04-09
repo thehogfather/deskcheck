@@ -193,14 +193,14 @@ status: draft
 - **Description**: When a recording session starts on a tab, automatically add that tab to a dedicated "DeskCheck" tab group using the `chrome.tabGroups` API — a distinctive color and label so the user can see at a glance which tabs are under recording. When the session ends (or the tab is closed), remove the tab from the group; clean up the group if it becomes empty. If the group already exists in the current window, reuse it rather than creating a duplicate.
 - **Dependencies**: Independent of other roadmap items, but pairs naturally with #8 (side panel) as complementary "active session visibility" cues.
 - **Definition of done**:
-  - [ ] `tabGroups` permission is added to `manifest.json`
-  - [ ] Starting a session adds the active tab to a "DeskCheck" tab group in the current window
-  - [ ] Tab group has a distinctive color and a clear label (e.g., "DeskCheck")
-  - [ ] If a "DeskCheck" group already exists in the window, the tab is added to it rather than creating a new one
-  - [ ] Ending a session removes the tab from the group
-  - [ ] If the group becomes empty after a session ends, the group is cleaned up
-  - [ ] Closing a recorded tab while a session is active does not leave orphaned group state
-  - [ ] Tab group behaviour is unit/integration-tested where possible (chrome.tabGroups API mocked)
+  - [x] `tabGroups` permission is added to `manifest.json`
+  - [x] Starting a session adds the active tab to a "DeskCheck" tab group in the current window
+  - [x] Tab group has a distinctive color and a clear label (e.g., "DeskCheck")
+  - [x] If a "DeskCheck" group already exists in the window, the tab is added to it rather than creating a new one
+  - [x] Ending a session removes the tab from the group
+  - [x] If the group becomes empty after a session ends, the group is cleaned up
+  - [x] Closing a recorded tab while a session is active does not leave orphaned group state
+  - [x] Tab group behaviour is unit/integration-tested where possible (chrome.tabGroups API mocked)
 
 ### 10. ~~Session lifecycle controls: pause, resume, stop, discard~~ — merged into #11
 - **Status**: Merged into feature #11 (Side panel session controls) on 2026-04-08. All lifecycle controls (Pause / Resume / Stop / Discard) now ship as part of the combined side panel session-controls feature since they share the same form surface and state machine.
