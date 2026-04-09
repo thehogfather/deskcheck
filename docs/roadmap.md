@@ -136,6 +136,33 @@ status: draft
   - [x] Session metrics from feature #1 (duration, event/screenshot counts, size) continue to work correctly with OPFS-backed storage, with size computed from actual OPFS footprint
   - [x] Existing export schema is preserved (no breaking changes to `session.json`)
 
+### 12. Side panel control layout refinement
+- **Persona**: Bug Reporter
+- **Goal**: Make the side panel controls more intuitive by separating session lifecycle from annotation, embedding the element picker in the annotation flow, removing the redundant standalone screenshot button, and adding icons to all buttons for scannability
+- **Impact**: Medium | **Effort**: Medium
+- **Description**: Four related layout changes to the side panel controls:
+
+  **1. Icons on all buttons.** Every button component (Start, Pause/Resume, Stop & Download, Discard, Reset, Add note, Pick element) gets a leading icon so the control surface is scannable at a glance even in the narrow side panel width.
+
+  **2. Remove the standalone screenshot button; replace with a focused-screenshot picker.** A full-page screenshot is already captured automatically with every annotation, so the standalone "Screenshot" button adds little value. Remove it. The element picker becomes the only way to attach a focused (cropped) screenshot to an annotation — it selects a DOM element and crops the full-page capture to that element's bounding box. This simplifies the control surface and clarifies that screenshots are always tied to annotations.
+
+  **3. Move lifecycle controls to the top of the side panel.** Pause/Resume, Stop & Download, and Discard are session-level controls that govern the recording lifecycle. They should be visually separated from the annotation controls and moved to a top toolbar above the event feed. This makes the bottom form purely about composing annotations, and gives the lifecycle controls prominence without cluttering the input area. The Start button (pre-session) and Reset button (post-session) also live in the top bar since they are lifecycle actions.
+
+  **4. Embed the element picker trigger inside the annotation textarea.** The element picker is part of composing an annotation — it attaches a focused screenshot crop to the note. Move the picker trigger inside (or on the border of) the annotation textarea to visually communicate this relationship. The only control outside the textarea is the "Add annotation" button. When an element is picked, the existing chip appears below/inside the textarea showing the selected selector with a clear button.
+
+- **Dependencies**: Feature #11 (Side panel session controls) — this feature reshuffles the controls that #11 introduced. #11 must be complete first.
+- **Definition of done**:
+  - [ ] Every button in the side panel has a leading icon (SVG or Unicode) that communicates its action
+  - [ ] The standalone "Screenshot" button is removed from the side panel
+  - [ ] The element picker is the only mechanism for attaching a focused screenshot to an annotation
+  - [ ] Lifecycle controls (Start, Pause/Resume, Stop & Download, Discard, Reset) are rendered in a top toolbar above the event feed, not in the bottom controls region
+  - [ ] The bottom controls region contains only: the annotation textarea (with embedded element picker trigger), the selected-element chip, and the "Add annotation" button
+  - [ ] The element picker trigger is visually embedded inside or on the edge of the annotation textarea
+  - [ ] PII mode selector remains in the bottom controls (pre-session only, per existing gating logic)
+  - [ ] Session metrics (duration, counts, size) move to the top bar alongside the lifecycle controls
+  - [ ] Existing gating logic is preserved: lifecycle controls hidden when no session is active, annotation controls hidden pre-session
+  - [ ] All existing tests pass; new tests cover the updated DOM structure and control placement
+
 ---
 
 ## Priority: Later
@@ -237,11 +264,13 @@ graph LR
     4[4. PII capture modes]
     6[6. Voice annotations]
     8[8. Side panel UX] --> 11[11. Side panel session controls]
+    11 --> 12[12. Control layout refinement]
     9[9. Active tab group]
 ```
 
 - Feature #5 (Incremental persistence) benefits from #1 (Session size indicator) shipping first — users can see the improvement, and the indicator's calculation needs to be compatible with both storage backends.
 - Feature #7 (Opt-in tab switching) builds on feature #2 — the "recorded tab only" invariant is the precondition that gives tab switching a clear meaning (moving an explicit pointer rather than implicitly following the user).
 - Feature #11 (Side panel session controls: lifecycle, feedback, gated UI, reset) depends on #8 (Side panel UX) — all its pieces live in the side panel form and event list. Absorbs the former feature #10 (session lifecycle controls).
+- Feature #12 (Control layout refinement) depends on #11 — it reshuffles the controls that #11 introduced (lifecycle top bar, embedded picker, icon buttons, screenshot removal).
 - Features #8 (Side panel UX) and #9 (Active tab group) are complementary "active session visibility" cues but can ship independently.
 - All other features are independent.
