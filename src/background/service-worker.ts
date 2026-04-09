@@ -1,22 +1,52 @@
-import { Message } from "../types";
-import {
-  createSession,
-  endSession,
-  clearSession,
-  getSession,
-  getEvents,
-  getScreenshots,
-  appendEvent,
-  storeScreenshot,
-} from "../lib/session-store";
+import { Message, SessionMetadata, TimelineEvent, TimelineEventInput } from "../types";
+import { OpfsSessionStore } from "../lib/opfs-session-store";
+import type { SessionStore } from "../lib/session-store-types";
 import { DebuggerClient } from "../lib/debugger-client";
 import { DEFAULT_PII_MODE, parsePiiMode } from "../lib/pii-modes";
 import { SIDEPANEL_PATH } from "../constants";
+import { exportSessionStreaming, getExportFilename } from "../lib/exporter";
+import { computeSessionMetrics } from "../lib/session-metrics";
+import {
+  captureAndPersistScreenshot,
+  buildScreenshotEvent,
+  dataUrlToPngBytes,
+} from "./screenshot";
 
 const debuggerClient = new DebuggerClient();
-import { exportSession, getExportFilename } from "../lib/exporter";
-import { computeSessionMetrics } from "../lib/session-metrics";
-import { takeScreenshot } from "./screenshot";
+// One SessionStore instance owns all persistence for the worker. Its
+// internal ensureReady() caches the OPFS handles after the first call,
+// so subsequent message handlers do not pay the setup cost.
+const store: SessionStore = new OpfsSessionStore();
+
+// ── Side panel live broadcasts ──
+//
+// After feature #5 moved events out of chrome.storage.local into OPFS,
+// the side panel can no longer subscribe to a storage key for live
+// updates. Every store mutation that the side panel cares about goes
+// through one of these helpers, which forwards a runtime broadcast to
+// any open side panel document.
+//
+// `chrome.runtime.sendMessage` from the SW to other extension contexts
+// rejects when there are no listeners (e.g., side panel closed). The
+// rejections are non-fatal — we swallow them via .catch().
+
+function broadcastToPanels(msg: Message): void {
+  try {
+    void chrome.runtime.sendMessage(msg).catch(() => {
+      // No listeners — common when the side panel is closed.
+    });
+  } catch {
+    // chrome.runtime may not be ready in tests.
+  }
+}
+
+async function appendEventBroadcast(
+  input: TimelineEventInput,
+): Promise<TimelineEvent> {
+  const enriched = await store.appendEvent(input);
+  broadcastToPanels({ type: "EVENT_APPENDED", event: enriched });
+  return enriched;
+}
 
 let recording = false;
 let paused = false;
@@ -211,10 +241,33 @@ chrome.action.onClicked.addListener((tab) => {
   })();
 });
 
+function generateSessionId(): string {
+  return crypto.randomUUID();
+}
+
+function buildSessionMetadata(
+  tabId: number,
+  url: string,
+  viewport: { width: number; height: number },
+  piiMode: SessionMetadata["pii_mode"],
+): SessionMetadata {
+  return {
+    id: generateSessionId(),
+    tab_id: tabId,
+    start_time: new Date().toISOString(),
+    end_time: null,
+    duration_ms: null,
+    initial_url: url,
+    user_agent: navigator.userAgent,
+    viewport,
+    pii_mode: piiMode,
+  };
+}
+
 // ── Restore state on service worker wake ──
 
 async function restoreState() {
-  const session = await getSession();
+  const session = await store.ensureReady();
   if (session && !session.end_time) {
     recording = true;
     activeSessionId = session.id;
@@ -271,7 +324,7 @@ async function handleMessage(
 ) {
   switch (msg.type) {
     case "GET_SESSION_STATE": {
-      const storedSession = await getSession();
+      const storedSession = await store.getSession();
       return {
         recording,
         paused,
@@ -293,19 +346,36 @@ async function handleMessage(
     }
 
     case "GET_SESSION_METRICS": {
-      const session = await getSession();
+      const session = await store.getSession();
       if (!session || !recording) {
-        return { startTime: "", eventCount: 0, screenshotCount: 0, eventsSizeBytes: 0, screenshotsSizeBytes: 0 };
+        return {
+          startTime: "",
+          eventCount: 0,
+          screenshotCount: 0,
+          eventsSizeBytes: 0,
+          screenshotsSizeBytes: 0,
+        };
       }
-      const events = await getEvents();
-      const screenshots = await getScreenshots();
-      return computeSessionMetrics(events, screenshots, session.start_time);
+      const [eventCount, screenshotCount, sizes] = await Promise.all([
+        store.countEvents(),
+        store.countScreenshots(),
+        store.computeByteSizes(),
+      ]);
+      return computeSessionMetrics(
+        eventCount,
+        screenshotCount,
+        sizes.events,
+        sizes.screenshots,
+        session.start_time,
+      );
     }
 
     case "START_SESSION": {
       activeTabId = msg.tabId;
       const piiMode = parsePiiMode(msg.piiMode);
-      const session = await createSession(msg.tabId, msg.url, msg.viewport, piiMode);
+      const session = await store.createSession(
+        buildSessionMetadata(msg.tabId, msg.url, msg.viewport, piiMode),
+      );
       recording = true;
       activeSessionId = session.id;
       setBadge(true);
@@ -325,11 +395,13 @@ async function handleMessage(
             // (TAKE_SCREENSHOT, ADD_ANNOTATION) bypass this gate
             // because they are explicit user intent.
             if (paused) return;
-            appendEvent(event);
+            void appendEventBroadcast(event);
           });
         } catch (e) {
           console.warn("[DeskCheck] Failed to attach debugger:", e);
-          warnings.push("Could not attach debugger — console and network errors will not be captured. Close DevTools and restart the session.");
+          warnings.push(
+            "Could not attach debugger — console and network errors will not be captured. Close DevTools and restart the session.",
+          );
         }
 
         try {
@@ -339,7 +411,9 @@ async function handleMessage(
           });
         } catch (e) {
           console.warn("[DeskCheck] Failed to inject content script:", e);
-          warnings.push("Could not inject content script — DOM interactions will not be recorded.");
+          warnings.push(
+            "Could not inject content script — DOM interactions will not be recorded.",
+          );
         }
 
         await new Promise((r) => setTimeout(r, 100));
@@ -359,7 +433,15 @@ async function handleMessage(
     case "STOP_SESSION": {
       const tabToNotify = sender.tab?.id ?? activeTabId;
       await debuggerClient.detach();
-      await endSession();
+      const now = new Date();
+      const existing = await store.getSession();
+      if (existing) {
+        await store.updateSession({
+          end_time: now.toISOString(),
+          duration_ms:
+            now.getTime() - new Date(existing.start_time).getTime(),
+        });
+      }
       recording = false;
       paused = false;
       const stoppedSessionId = activeSessionId;
@@ -371,9 +453,11 @@ async function handleMessage(
       // only released when the bound tab is closed.
 
       if (tabToNotify) {
-        await chrome.tabs.sendMessage(tabToNotify, { type: "SESSION_STOPPED" }).catch(() => {
-          // Tab may already be closed
-        });
+        await chrome.tabs
+          .sendMessage(tabToNotify, { type: "SESSION_STOPPED" })
+          .catch(() => {
+            // Tab may already be closed
+          });
       }
       return { recording: false, sessionId: stoppedSessionId };
     }
@@ -389,14 +473,24 @@ async function handleMessage(
       ) {
         debuggerClient.updatePageUrl(msg.event.to_url);
       }
-      await appendEvent(msg.event);
+      await appendEventBroadcast(msg.event);
       return;
     }
 
     case "TAKE_SCREENSHOT": {
       if (!activeTabId) return { screenshotId: null, dataUrl: null };
-      const ss = await takeScreenshot(activeTabId, msg.trigger);
-      return { screenshotId: ss?.id ?? null, dataUrl: ss?.dataUrl ?? null };
+      const captured = await captureAndPersistScreenshot(store, activeTabId);
+      if (!captured) return { screenshotId: null, dataUrl: null };
+      // Side panel needs the bytes — broadcast the data URL BEFORE the
+      // EVENT_APPENDED so the row renders with its thumbnail in one
+      // paint.
+      broadcastToPanels({
+        type: "SCREENSHOT_APPENDED",
+        id: captured.id,
+        dataUrl: captured.dataUrl,
+      });
+      await appendEventBroadcast(buildScreenshotEvent(captured, msg.trigger));
+      return { screenshotId: captured.id, dataUrl: captured.dataUrl };
     }
 
     case "ADD_ANNOTATION": {
@@ -405,49 +499,142 @@ async function handleMessage(
       // standalone timeline events — they live inline on the annotation
       // row in the side panel. Avoids the duplicate-row noise the
       // user reported on the first feature-8 prototype.
-      const ss = await takeScreenshot(activeTabId, "annotation", {
-        emitTimelineEvent: false,
-      });
+      const captured = await captureAndPersistScreenshot(store, activeTabId);
+      if (captured) {
+        broadcastToPanels({
+          type: "SCREENSHOT_APPENDED",
+          id: captured.id,
+          dataUrl: captured.dataUrl,
+        });
+      }
       const tab = await chrome.tabs.get(activeTabId);
 
       let elementScreenshotId: string | undefined;
       if (msg.elementScreenshotData) {
         elementScreenshotId = `el_${Date.now()}`;
-        await storeScreenshot(elementScreenshotId, msg.elementScreenshotData);
+        // Element screenshots are also stored without a standalone
+        // timeline event. The annotation event references them via
+        // `element_screenshot_id`.
+        const bytes = dataUrlToPngBytes(msg.elementScreenshotData);
+        await store.appendScreenshot(elementScreenshotId, bytes);
+        broadcastToPanels({
+          type: "SCREENSHOT_APPENDED",
+          id: elementScreenshotId,
+          dataUrl: msg.elementScreenshotData,
+        });
       }
 
-      await appendEvent({
+      await appendEventBroadcast({
         timestamp: new Date().toISOString(),
         type: "annotation",
         text: msg.text,
         element: msg.element,
-        screenshot_id: ss?.id ?? "",
+        screenshot_id: captured?.id ?? "",
         element_screenshot_id: elementScreenshotId,
         page_url: tab.url ?? "",
       });
-      return { screenshotId: ss?.id };
+      return { screenshotId: captured?.id };
+    }
+
+    case "GET_EVENTS_SNAPSHOT": {
+      // Side panel hydration. Reads all events from OPFS plus enough
+      // screenshot bytes (encoded as data URLs) to render thumbnails
+      // for any screenshot/annotation events in the result. The
+      // service worker holds the encoded data URLs only for the
+      // duration of this single message — they are dropped from SW
+      // memory immediately after the response is dispatched.
+      const session = await store.getSession();
+      if (!session) return { events: [], screenshots: {} };
+      const events = await store.readEventsArray();
+      const screenshots: Record<string, string> = {};
+      // Collect every screenshot id referenced by the timeline.
+      const referencedIds = new Set<string>();
+      for (const e of events) {
+        if (e.type === "screenshot") {
+          referencedIds.add(e.id);
+        } else if (e.type === "annotation") {
+          if (e.screenshot_id) referencedIds.add(e.screenshot_id);
+          if (e.element_screenshot_id) referencedIds.add(e.element_screenshot_id);
+        }
+      }
+      for (const id of referencedIds) {
+        const bytes = await store.readScreenshot(id);
+        if (bytes) {
+          screenshots[id] = bytesToPngDataUrl(bytes);
+        }
+      }
+      return { events, screenshots };
     }
 
     case "EXPORT_SESSION": {
-      const session = await getSession();
+      const session = await store.getSession();
       if (!session) return { error: "No session" };
-      const events = await getEvents();
-      const screenshots = await getScreenshots();
-      const zipBytes = exportSession(session, events, screenshots);
+      const zipBytes = await exportSessionStreaming(store, session);
       const filename = getExportFilename(session);
-      const dataUrl = `data:application/zip;base64,${zipToBase64(zipBytes)}`;
+      // MV3 service workers in Chrome do NOT expose
+      // `URL.createObjectURL` (as of Chrome 147 — confirmed
+      // empirically). A Blob URL approach would save one encode pass
+      // but is currently non-functional in this runtime. Until Chrome
+      // ships URL.createObjectURL in SW, we fall back to a data URL
+      // built via a chunked base64 encode. The streaming zip writer
+      // still caps memory during the recording session (one screenshot
+      // in flight at a time); this only re-encodes the finished zip
+      // at download time, which is a bounded one-shot cost.
+      const dataUrl = `data:application/zip;base64,${bytesToBase64(zipBytes)}`;
       await chrome.downloads.download({ url: dataUrl, filename, saveAs: true });
-      await clearSession();
+      // Clear the session after the download call returns. Chrome's
+      // downloads process keeps the data URL alive on its own side
+      // until the download completes, so there is no URL lifetime
+      // concern like there would be with a blob URL.
+      await store.deleteSession();
+      broadcastToPanels({ type: "SESSION_CLEARED" });
       return { filename };
     }
   }
+}
+
+/**
+ * Encode raw bytes to a base64 string in 8190-byte (multiple of 3)
+ * chunks to avoid the `String.fromCharCode.apply(...)` argument limit
+ * and to keep peak memory usage bounded on large inputs.
+ */
+function bytesToBase64(bytes: Uint8Array): string {
+  const CHUNK = 8190;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
+    let bin = "";
+    for (let j = 0; j < slice.length; j++) {
+      bin += String.fromCharCode(slice[j]);
+    }
+    parts.push(btoa(bin));
+  }
+  return parts.join("");
+}
+
+/**
+ * Encode raw PNG bytes to a `data:image/png;base64,...` URL.
+ *
+ * Used by `GET_EVENTS_SNAPSHOT` to ship screenshot bytes to the side
+ * panel one-by-one rather than the whole session at once.
+ */
+function bytesToPngDataUrl(bytes: Uint8Array): string {
+  return `data:image/png;base64,${bytesToBase64(bytes)}`;
 }
 
 // ── Keyboard shortcuts ──
 
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === "take-screenshot" && recording && activeTabId) {
-    await takeScreenshot(activeTabId, "manual");
+    const captured = await captureAndPersistScreenshot(store, activeTabId);
+    if (captured) {
+      broadcastToPanels({
+        type: "SCREENSHOT_APPENDED",
+        id: captured.id,
+        dataUrl: captured.dataUrl,
+      });
+      await appendEventBroadcast(buildScreenshotEvent(captured, "manual"));
+    }
     return;
   }
   if (command === "open-panel") {
@@ -500,7 +687,15 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (tabId === activeTabId && recording) {
     try {
       await debuggerClient.detach();
-      await endSession();
+      const session = await store.getSession();
+      if (session) {
+        const now = new Date();
+        await store.updateSession({
+          end_time: now.toISOString(),
+          duration_ms:
+            now.getTime() - new Date(session.start_time).getTime(),
+        });
+      }
     } catch (e) {
       console.error("[DeskCheck] Error during tab close cleanup:", e);
     } finally {
@@ -521,21 +716,6 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 // ── Helpers ──
-
-function zipToBase64(bytes: Uint8Array): string {
-  // Encode in 8190-byte chunks (multiple of 3) to avoid OOM on large sessions
-  const CHUNK = 8190;
-  const parts: string[] = [];
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
-    let bin = "";
-    for (let j = 0; j < slice.length; j++) {
-      bin += String.fromCharCode(slice[j]);
-    }
-    parts.push(btoa(bin));
-  }
-  return parts.join("");
-}
 
 async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

@@ -1,0 +1,155 @@
+{
+  "schema_version": "1.1.0",
+  "session": {
+    "id": "golden-session-id",
+    "start_time": "2026-04-07T12:00:00.000Z",
+    "end_time": "2026-04-07T12:05:00.000Z",
+    "duration_ms": 300000,
+    "initial_url": "https://example.com/",
+    "user_agent": "GoldenAgent/1.0",
+    "viewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "pii_mode": "full"
+  },
+  "timeline": [
+    {
+      "seq": 1,
+      "timestamp": "2026-04-07T12:00:01.000Z",
+      "type": "interaction",
+      "subtype": "click",
+      "element": {
+        "tag": "button",
+        "id": "submit",
+        "selector": "#submit"
+      },
+      "coordinates": {
+        "x": 100,
+        "y": 200
+      },
+      "page_url": "https://example.com/"
+    },
+    {
+      "seq": 2,
+      "timestamp": "2026-04-07T12:00:02.000Z",
+      "type": "interaction",
+      "subtype": "input",
+      "element": {
+        "tag": "input",
+        "selector": "input[name=\"q\"]"
+      },
+      "value": "hello",
+      "page_url": "https://example.com/"
+    },
+    {
+      "seq": 3,
+      "timestamp": "2026-04-07T12:00:03.000Z",
+      "type": "interaction",
+      "subtype": "scroll",
+      "scroll_position": {
+        "x": 0,
+        "y": 300
+      },
+      "page_url": "https://example.com/"
+    },
+    {
+      "seq": 4,
+      "timestamp": "2026-04-07T12:00:04.000Z",
+      "type": "interaction",
+      "subtype": "navigation",
+      "from_url": "https://example.com/",
+      "to_url": "https://example.com/app",
+      "page_url": "https://example.com/app"
+    },
+    {
+      "seq": 5,
+      "timestamp": "2026-04-07T12:00:05.000Z",
+      "type": "viewport_resize",
+      "from": {
+        "width": 1280,
+        "height": 720
+      },
+      "to": {
+        "width": 1440,
+        "height": 900
+      },
+      "page_url": "https://example.com/app"
+    },
+    {
+      "seq": 6,
+      "timestamp": "2026-04-07T12:00:06.000Z",
+      "type": "console_error",
+      "level": "error",
+      "message": "Test error",
+      "stack_trace": "at foo (app.js:1:1)",
+      "page_url": "https://example.com/app"
+    },
+    {
+      "seq": 7,
+      "timestamp": "2026-04-07T12:00:07.000Z",
+      "type": "console_error",
+      "level": "warning",
+      "message": "Test warning",
+      "page_url": "https://example.com/app"
+    },
+    {
+      "seq": 8,
+      "timestamp": "2026-04-07T12:00:08.000Z",
+      "type": "network_error",
+      "method": "POST",
+      "url": "https://api.example.com/submit",
+      "status": 500,
+      "status_text": "Internal Server Error",
+      "request_headers": {
+        "content-type": "application/json"
+      },
+      "page_url": "https://example.com/app"
+    },
+    {
+      "seq": 9,
+      "timestamp": "2026-04-07T12:00:09.000Z",
+      "type": "js_exception",
+      "message": "TypeError: Cannot read properties of undefined",
+      "stack_trace": "at handleClick (app.js:42:10)",
+      "source_url": "https://example.com/app.js",
+      "line": 42,
+      "column": 10,
+      "page_url": "https://example.com/app"
+    },
+    {
+      "seq": 10,
+      "timestamp": "2026-04-07T12:00:10.000Z",
+      "type": "screenshot",
+      "id": "ss_golden_1",
+      "file": "screenshots/ss_golden_1.png",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "trigger": "annotation",
+      "page_url": "https://example.com/app"
+    },
+    {
+      "seq": 11,
+      "timestamp": "2026-04-07T12:00:11.000Z",
+      "type": "annotation",
+      "text": "Something broke after submit",
+      "screenshot_id": "ss_golden_1",
+      "page_url": "https://example.com/app"
+    }
+  ],
+  "summary": {
+    "total_events": 11,
+    "annotations": 1,
+    "console_errors": 1,
+    "console_warnings": 1,
+    "network_failures": 1,
+    "js_exceptions": 1,
+    "screenshots": 1,
+    "pages_visited": [
+      "https://example.com/",
+      "https://example.com/app"
+    ]
+  }
+}

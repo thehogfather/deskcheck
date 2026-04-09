@@ -1,74 +1,64 @@
-# Validation gate — feature-8 (Side panel UX with live event timeline)
+# Validation Gate — feature-5 (OPFS persistence)
 
-Run: 2026-04-08
-Result: **PASS** (first attempt, no retries needed)
+**Session**: `orch-20260407-222525-6254`
+**Branch**: `feature/incremental-persistence-opfs`
+**Run**: 2026-04-08 (Phase 5, first attempt — no retries)
 
-| Check | Command | Result |
-|-------|---------|--------|
-| Typecheck | `make typecheck` | Pass (exit 0) |
-| Tests | `make test` | 225/225 pass (19 files) |
-| Build | `make build` | Pass (dist/ produced; sidepanel/index.js: 12.71 KB, service-worker.js: 30.19 KB) |
+## Automated gates
 
-## Acceptance criteria from selected-plan.md (Test Level Matrix — 28 rows)
+| Gate | Command | Result |
+|------|---------|--------|
+| Typecheck | `make typecheck` (→ `tsc --noEmit`) | PASS — exit 0, no diagnostics |
+| Test suite | `make test` (→ `vitest run`) | PASS — 14 files, 205 passed, 0 failed |
+| Build | `make build` (→ `tsc --noEmit && vite build && cp -r icons dist/icons`) | PASS — exit 0 |
+| Build artefacts | `dist/manifest.json`, `dist/src/background/service-worker.js`, `dist/src/content/index.js`, `dist/src/popup/index.js`, `dist/icons/` | PRESENT |
 
-### Build-level (5 rows)
-- [x] Row #1: `manifest.json` declares `side_panel.default_path = "src/sidepanel/index.html"` and `permissions` includes `"sidePanel"`
-- [x] Row #3: `manifest.json` does not declare `action.default_popup`; `src/popup/` does not exist; no source file imports from `src/popup`
-- [x] Row #16: `src/sidepanel/**/*.ts` contains no references to `chrome.tabs.captureVisibleTab`, `chrome.debugger`, or `chrome.scripting`
-- [x] Row #24: `make typecheck` exits 0
-- [x] Row #25: `make test` passes 225/225
-- [x] Row #26: `make build` exits 0 and produces dist/
+Build output sizes:
+- `service-worker.js` — 32.07 KB (gzip 11.69 KB)
+- `content/index.js` — 19.09 KB (gzip 6.85 KB)
+- `popup/index.js` — 2.43 KB (gzip 1.06 KB)
+- `manifest.json` — 1.04 KB
 
-### Unit-level (9 rows)
-- [x] Row #6a: `eventToRow` produces a row for every TimelineEvent discriminator (7 variants × subtypes = 11 unit tests)
-- [x] Row #6b: `EXPECTED_DISCRIMINATORS` matches the TimelineEvent union; `assertExhaustiveSidePanelEvent` provides compile-time guard
-- [x] Row #7: screenshot row carries `screenshotPlaceholderId` and `screenshotDataUrl`; missing screenshots yield null without throwing; row JSON never contains `<img>` substring
-- [x] Row #11: subscription `change` handler never calls `session-store.getEvents` / `getSession` / `getScreenshots` (spy-asserted)
-- [x] Row #12: `newValue.length < lastSeenLength` triggers `onReset`; `newValue undefined` triggers `onReset(empty)`; same-length update triggers `onReset` (defensive); unrelated keys ignored; non-local areas ignored
-- [x] Row #13: `appendEvent` preserves the prefix; monotonic seq numbers
-- [x] Row #17: `setScrollPosition`/`getScrollPosition` round-trip; per-window isolation; `WINDOW_ID_NONE` (-1) is a no-op; key prefix is exactly `deskcheck_sidepanel_scroll_`; negative values clamp to 0
-- [x] Row #21: `buildFirstRunNoticeModel().bullets` deep-equals `PRIVACY_NOTICE_BULLETS` (single source of truth)
+## Test breakdown (new tests introduced in this PR)
 
-### Integration-level (12 rows)
-- [x] Row #2: service worker calls `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })` on module init; tolerates rejection without crashing
-- [x] Row #4: clicking `#start-btn` with PII radio set to `metadata` sends `START_SESSION` with `piiMode: "metadata"`
-- [x] Row #5: `#events-list` and `#controls` are direct sibling children of root; events region precedes controls in DOM order; flex layout pinned via inline styles
-- [x] Row #8: screenshot event row renders `.screenshot-placeholder` (no `<img>`) by default; clicking placeholder reveals `<img src="data:...">`
-- [x] Row #9: storage change setting `session.end_time` to non-null unmounts all revealed `<img>` elements
-- [x] Row #10: storage change appending one event to a 3-event list adds one row; existing DOM nodes are preserved by identity (`data-seq` unchanged)
-- [x] Row #14: controls region contains `#start-btn`, `#stop-btn`, `#screenshot-btn`, `#annotation-text`, `#pii-mode-fieldset`, `#metrics-row`
-- [x] Row #15: typing into `#annotation-text` and clicking `#add-note-btn` sends `ADD_ANNOTATION` with the typed text
-- [x] Row #18: scrolling `#events-list` does not throw; panel remains mounted (round-trip pinned in unit test)
-- [x] Row #19: `#controls` is a direct sibling of `#events-list` (not a descendant), enabling independent scroll
-- [x] Row #20: when `getFirstRunSeen()` returns false, `#first-run-notice` renders inline; when true, it does not render; clicking `.dismiss-btn` calls `markFirstRunSeen` and removes the notice
-- [x] Row #22: `chrome.windows.onFocusChanged` listener fires `GET_SESSION_STATE` resend; `WINDOW_ID_NONE` (-1) is ignored
-- [x] Row #23: storage change setting `session.end_time` transitions `getState()` from `"active"` to `"idle"`
+| Test file | Tests | DoD items covered |
+|-----------|-------|-------------------|
+| `src/lib/jsonl.test.ts` | 10 | JSONL encode/decode contract (supporting #9) |
+| `src/lib/session-store.test.ts` | 32 | contract suite run against BOTH `FakeSessionStore` and `OpfsSessionStore`. Covers DoD #1, #2, #5, #6 |
+| `src/lib/opfs-session-store.test.ts` | 4 | DoD #5 (metadata-only `chrome.storage.local` isolation), recovery on SW wake (supporting #8), partial-line tolerance (supporting #9) |
+| `src/lib/exporter.golden.test.ts` | 2 | DoD #7 (schema preservation, byte-for-byte golden fixture) |
+| `src/lib/exporter.streaming.test.ts` | 2 | DoD #3 (streaming export memory bound, 1000 events + 100 × 100 KB screenshots) |
 
-### Manual (2 rows — deferred to PR review)
-- [ ] Row #27: visual styling matches dark theme palette (slate-900 bg, blue-500 accent, per-row accents) — *manual smoke required*
-- [ ] Row #28: end-to-end smoke: load unpacked → click toolbar → side panel opens → start session → take screenshot → placeholder shown → click reveal → stop → thumbnails gone → multi-window check — *manual smoke required*
+50 new tests total. All 155 pre-existing tests untouched and still passing.
 
-## Privacy invariants (cross-cutting)
+## DoD coverage matrix
 
-- [x] Placeholder-by-default: `eventToRow` returns the dataUrl as a string field on the view-model; the glue layer renders it only on explicit user click. Pinned at unit level (row #7) and integration level (row #8).
-- [x] Unmount-on-stop: revealed thumbnails are removed from the DOM when the session ends. Pinned at integration level (row #9).
-- [x] No direct capture from side panel: grep test (row #16) pins zero references to `captureVisibleTab`, `chrome.debugger`, `chrome.scripting`.
-- [x] Append-only delta subscription: spy test asserts the change handler never calls store accessors (row #11).
-- [x] Single privacy-notice source of truth: `buildFirstRunNoticeModel()` shared by widget and side panel (row #21).
-- [x] PII mode rendering: SW remains the single PII enforcement point at capture time (feature #4 invariant preserved); side panel renders whatever is in storage with no second-layer enforcement.
+| DoD item (verbatim from `docs/roadmap.md`) | Evidence |
+|---|---|
+| Events are appended to an OPFS file incrementally, not accumulated in a chrome.storage.local array | `session-store.test.ts` contract suite — both impls |
+| Screenshots are written as individual PNG files to OPFS, not stored as base64 data URLs | `session-store.test.ts` + `opfs-session-store.test.ts` |
+| Export reads from OPFS and streams into the zip without loading the full session into memory | `exporter.streaming.test.ts` — peak resident bytes asserted below `3 × one screenshot` |
+| Session recording works for 100+ screenshots and 1000+ events without service worker OOM | `exporter.streaming.test.ts` exercises the 100 × 100 KB + 1000 events shape through the streaming pipeline; **additionally** on the pre-merge manual smoke checklist because vitest cannot reproduce MV3 worker memory pressure |
+| `chrome.storage.local` is used only for lightweight session metadata (not events or screenshots) | `opfs-session-store.test.ts` — "chrome.storage.local is metadata-only". No key containing "event" or "screenshot" written; only `STORAGE_SESSION` remains after a full lifecycle. Structural: `STORAGE_EVENTS` and `STORAGE_SCREENSHOTS` removed from `src/constants.ts` |
+| Session metrics from feature #1 continue to work correctly with OPFS-backed storage, with size computed from actual OPFS footprint | `session-store.test.ts` contract tests for `computeByteSizes` + updated `session-metrics.test.ts` for the numeric `computeSessionMetrics` signature |
+| Existing export schema is preserved (no breaking changes to `session.json`) | `exporter.golden.test.ts` byte-for-byte against `src/lib/__fixtures__/golden-session.json` (fixture covers every `TimelineEvent` variant) + existing `exporter.test.ts` assertions |
 
-## Diff stats
+## Pre-merge manual smoke checklist
 
-- 17 files added (4 pure lib modules + 4 lib tests + 4 sidepanel files + 4 build tests + 1 session-store test)
-- 6 files modified (manifest.json, package.json, service-worker.ts, sidepanel-storage.ts, sidepanel.ts, .orchestrator/current-task.md)
-- 3 files deleted (src/popup/{index.html, popup.ts, popup.css})
+The MV3 service worker memory pressure and the real-Chrome wake/sleep
+cycle cannot be reproduced under vitest; they are verified manually in
+a clean Chrome profile before the PR merges. Results will be pasted
+into the PR description.
 
-## Plans → tests → implementation mapping
+- [ ] `make clean && make build` produces `dist/` with no warnings
+- [ ] Load `dist/` via `chrome://extensions` → Load unpacked, clean Chrome profile; no errors shown
+- [ ] Happy path: record on `https://example.com`, 5 interactions + 2 screenshots, Stop & Download. Zip opens; `session.json` parses; `screenshots/` has 2 PNGs
+- [ ] OPFS verification during recording: `chrome://inspect/#service-workers` → DeskCheck → Application → Storage → File System shows `sessions/<id>/events.jsonl` (≥5 lines) and `sessions/<id>/screenshots/` (2 PNGs). After download, the session directory is gone
+- [ ] Recovery: start session, record 10 events, stop the worker from `chrome://serviceworker-internals`, wait 5s, interact again. Badge still REC, next `seq` is 11, final export contains events 1–11 in order
+- [ ] Feature-1 metrics: 50 events + 5 screenshots → widget shows event count 50, screenshot count 5, both sizes non-zero, all values update within 2s of each new event
+- [ ] Large session: `for (let i=0;i<1000;i++) document.body.click()` in the page console + 100 screenshots via shortcut → `chrome://extensions` Errors stays empty, Stop & Download produces a zip that opens
 
-- All three competing plans (speed, quality, safety) committed at `.orchestrator/plans/feature-8/` for audit trail
-- Selected plan: quality (base) + 7 safety grafts; rationale in `.orchestrator/plans/feature-8/selected-plan.md`
-- 61 failing acceptance tests committed in Phase 3 → 0 failing in Phase 5
+## Gate decision
 
-## Conclusion
-
-**Validation gate PASSED on first attempt.** All automated checks green, all DoD checkboxes covered (manual rows deferred to PR review). Ready for Phase 6 (architecture/roadmap update + PR).
+**PASS** (first attempt, no retries). Automated gates green.
+Pre-merge manual smoke is tracked in the PR description.

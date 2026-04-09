@@ -53,6 +53,7 @@
 // `chrome` already in place, then exercise the captured handlers.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { createFakeOpfsRoot } from "../src/lib/__fixtures__/fake-opfs";
 
 type Fn = ReturnType<typeof vi.fn>;
 
@@ -144,6 +145,15 @@ function installFakeChrome(): MockChrome {
     // @ts-expect-error — minimum navigator stub.
     globalThis.navigator = { userAgent: "test" };
   }
+  // OpfsSessionStore (constructed at module init by service-worker.ts)
+  // calls navigator.storage.getDirectory() during createSession. In a
+  // node test environment that property is missing — install a fake
+  // OPFS root so the SW can run end-to-end.
+  const fakeOpfs = createFakeOpfsRoot();
+  // @ts-expect-error — minimum navigator.storage stub.
+  globalThis.navigator.storage = {
+    getDirectory: async () => fakeOpfs.root,
+  };
   if (!globalThis.crypto || !globalThis.crypto.randomUUID) {
     // @ts-expect-error — minimum crypto stub.
     globalThis.crypto = { randomUUID: () => "test-uuid" };

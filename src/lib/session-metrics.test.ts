@@ -5,7 +5,6 @@ import {
   formatBytes,
   isOverSizeThreshold,
 } from "./session-metrics";
-import { TimelineEvent } from "../types";
 
 describe("formatDuration", () => {
   it("returns '< 1s' for negative values", () => {
@@ -84,47 +83,36 @@ describe("computeSessionMetrics", () => {
   const startTime = "2026-04-06T10:00:00.000Z";
 
   it("returns zeros for empty session", () => {
-    const result = computeSessionMetrics([], {}, startTime);
+    const result = computeSessionMetrics(0, 0, 0, 0, startTime);
     expect(result.startTime).toBe(startTime);
     expect(result.eventCount).toBe(0);
     expect(result.screenshotCount).toBe(0);
-    expect(result.eventsSizeBytes).toBeGreaterThan(0); // "[]" has length 2
+    expect(result.eventsSizeBytes).toBe(0);
     expect(result.screenshotsSizeBytes).toBe(0);
   });
 
-  it("counts events correctly", () => {
-    const events = [
-      { seq: 1, timestamp: "", type: "interaction", subtype: "click", page_url: "" },
-      { seq: 2, timestamp: "", type: "interaction", subtype: "click", page_url: "" },
-    ] as TimelineEvent[];
-    const result = computeSessionMetrics(events, {}, startTime);
+  it("passes event count through unchanged", () => {
+    const result = computeSessionMetrics(2, 0, 120, 0, startTime);
     expect(result.eventCount).toBe(2);
     expect(result.screenshotCount).toBe(0);
+    expect(result.eventsSizeBytes).toBe(120);
   });
 
-  it("counts screenshots correctly", () => {
-    const screenshots = {
-      ss_1: "data:image/png;base64,abc123",
-      ss_2: "data:image/png;base64,def456",
-    };
-    const result = computeSessionMetrics([], screenshots, startTime);
+  it("passes screenshot count through unchanged", () => {
+    const result = computeSessionMetrics(0, 2, 0, 4096, startTime);
     expect(result.screenshotCount).toBe(2);
     expect(result.eventCount).toBe(0);
+    expect(result.screenshotsSizeBytes).toBe(4096);
   });
 
-  it("estimates size from events and screenshots separately", () => {
-    const events = [
-      { seq: 1, timestamp: "", type: "interaction", subtype: "click", page_url: "https://example.com" },
-    ] as TimelineEvent[];
-    const screenshots = { ss_1: "x".repeat(1000) };
-
-    const result = computeSessionMetrics(events, screenshots, startTime);
-    expect(result.eventsSizeBytes).toBeGreaterThan(0);
+  it("keeps events and screenshot sizes separate", () => {
+    const result = computeSessionMetrics(1, 1, 80, 1000, startTime);
+    expect(result.eventsSizeBytes).toBe(80);
     expect(result.screenshotsSizeBytes).toBe(1000);
   });
 
   it("passes through startTime", () => {
-    const result = computeSessionMetrics([], {}, startTime);
+    const result = computeSessionMetrics(0, 0, 0, 0, startTime);
     expect(result.startTime).toBe(startTime);
   });
 });

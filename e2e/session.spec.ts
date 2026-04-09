@@ -85,19 +85,36 @@ async function getStoredSession(sw: import("@playwright/test").Worker) {
   });
 }
 
-async function getMetrics(sw: import("@playwright/test").Worker) {
-  return sw.evaluate(async () => {
-    const result = await chrome.storage.local.get([
-      "deskcheck_events",
-      "deskcheck_screenshots",
-    ]);
-    const events = result.deskcheck_events ?? [];
-    const screenshots = result.deskcheck_screenshots ?? {};
+/**
+ * Read the live session metrics via the service worker's
+ * GET_SESSION_METRICS message. After feature #5 moved events and
+ * screenshots out of chrome.storage.local into OPFS, the only correct
+ * way to read counts from a test is via the SW's message handler —
+ * it exposes both via `store.countEvents()` / `store.countScreenshots()`.
+ *
+ * `chrome.runtime.sendMessage` dispatched from inside the SW itself
+ * does NOT fan in to the SW's own onMessage listener, so we open a
+ * short-lived extension page (the side panel HTML, which is already
+ * extension-privileged) and send from there.
+ */
+async function getMetrics(
+  context: import("@playwright/test").BrowserContext,
+  extensionId: string,
+) {
+  const helper = await openSidePanelPage(context, extensionId);
+  try {
+    const result = (await helper.evaluate(async () => {
+      return chrome.runtime.sendMessage({ type: "GET_SESSION_METRICS" });
+    })) as
+      | { eventCount?: number; screenshotCount?: number }
+      | undefined;
     return {
-      eventCount: events.length,
-      screenshotCount: Object.keys(screenshots).length,
+      eventCount: result?.eventCount ?? 0,
+      screenshotCount: result?.screenshotCount ?? 0,
     };
-  });
+  } finally {
+    await helper.close();
+  }
 }
 
 test.describe("Side panel UI", () => {
@@ -188,14 +205,13 @@ test.describe("Session lifecycle", () => {
   test("clicking on page generates recorded events", async ({
     context,
     extensionId,
-    serviceWorker,
   }) => {
     const page = await context.newPage();
     await page.goto(TEST_PAGE, { waitUntil: "domcontentloaded" });
 
     await startSessionOnTab(context, extensionId, TEST_PAGE);
 
-    const before = await getMetrics(serviceWorker);
+    const before = await getMetrics(context, extensionId);
     expect(before.eventCount).toBe(0);
 
     // Generate click events
@@ -203,7 +219,7 @@ test.describe("Session lifecycle", () => {
     await page.click("p");
     await page.waitForTimeout(1000);
 
-    const after = await getMetrics(serviceWorker);
+    const after = await getMetrics(context, extensionId);
     expect(after.eventCount).toBeGreaterThan(0);
 
     await stopSession(context, extensionId);
@@ -247,7 +263,7 @@ test.describe("Session lifecycle", () => {
     }, tabId);
 
     await page.waitForTimeout(1000);
-    const metrics = await getMetrics(serviceWorker);
+    const metrics = await getMetrics(context, extensionId);
     expect(metrics.screenshotCount).toBeGreaterThanOrEqual(1);
 
     await stopSession(context, extensionId);

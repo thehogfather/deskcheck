@@ -9,7 +9,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { mountSidePanel, type SidePanelDeps } from "./sidepanel";
 import type { Message, TimelineEvent } from "../types";
-import { STORAGE_EVENTS } from "../constants";
 
 type StorageListener = (
   changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
@@ -257,21 +256,20 @@ describe("annotation submit (matrix #15)", () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe("live append (matrix #10)", () => {
-  it("storage.onChanged with length 3 → 4 appends one row; existing rows preserved", async () => {
+  it("EVENT_APPENDED runtime broadcast appends one row; existing rows preserved", async () => {
     const h = makeHarness();
     h.deps.initialEvents = [ev(1), ev(2), ev(3)];
     await mountSidePanel(h.deps);
+    // Allow the GET_EVENTS_SNAPSHOT round-trip to settle (the harness
+    // returns undefined for it so the side panel falls back to
+    // initialEvents).
+    await new Promise((r) => setTimeout(r, 0));
 
     const existing = Array.from(h.deps.root.querySelectorAll("#events-list .event-row"));
     expect(existing.length).toBe(3);
     const firstId = (existing[0] as HTMLElement).getAttribute("data-seq");
 
-    h.fireStorage({
-      [STORAGE_EVENTS]: {
-        oldValue: [ev(1), ev(2), ev(3)],
-        newValue: [ev(1), ev(2), ev(3), ev(4)],
-      },
-    });
+    h.fireRuntimeMessage({ type: "EVENT_APPENDED", event: ev(4) });
     await new Promise((r) => setTimeout(r, 0));
 
     const after = Array.from(h.deps.root.querySelectorAll("#events-list .event-row"));
