@@ -152,16 +152,16 @@ status: draft
 
 - **Dependencies**: Feature #11 (Side panel session controls) — this feature reshuffles the controls that #11 introduced. #11 must be complete first.
 - **Definition of done**:
-  - [ ] Every button in the side panel has a leading icon (SVG or Unicode) that communicates its action
-  - [ ] The standalone "Screenshot" button is removed from the side panel
-  - [ ] The element picker is the only mechanism for attaching a focused screenshot to an annotation
-  - [ ] Lifecycle controls (Start, Pause/Resume, Stop & Download, Discard, Reset) are rendered in a top toolbar above the event feed, not in the bottom controls region
-  - [ ] The bottom controls region contains only: the annotation textarea (with embedded element picker trigger), the selected-element chip, and the "Add annotation" button
-  - [ ] The element picker trigger is visually embedded inside or on the edge of the annotation textarea
-  - [ ] PII mode selector remains in the bottom controls (pre-session only, per existing gating logic)
-  - [ ] Session metrics (duration, counts, size) move to the top bar alongside the lifecycle controls
-  - [ ] Existing gating logic is preserved: lifecycle controls hidden when no session is active, annotation controls hidden pre-session
-  - [ ] All existing tests pass; new tests cover the updated DOM structure and control placement
+  - [x] Every button in the side panel has a leading icon (SVG or Unicode) that communicates its action
+  - [x] The standalone "Screenshot" button is removed from the side panel
+  - [x] The element picker is the only mechanism for attaching a focused screenshot to an annotation
+  - [x] Lifecycle controls (Start, Pause/Resume, Stop & Download, Discard, Reset) are rendered in a top toolbar above the event feed, not in the bottom controls region
+  - [x] The bottom controls region contains only: the annotation textarea (with embedded element picker trigger), the selected-element chip, and the "Add annotation" button
+  - [x] The element picker trigger is visually embedded inside or on the edge of the annotation textarea
+  - [x] PII mode selector remains in the bottom controls (pre-session only, per existing gating logic)
+  - [x] Session metrics (duration, counts, size) move to the top bar alongside the lifecycle controls
+  - [x] Existing gating logic is preserved: lifecycle controls hidden when no session is active, annotation controls hidden pre-session
+  - [x] All existing tests pass; new tests cover the updated DOM structure and control placement
 
 ---
 
