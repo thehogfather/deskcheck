@@ -257,6 +257,10 @@ export async function mountSidePanel(
     id: "annotation-text",
     placeholder: "What did you expect? What happened instead?",
   }) as HTMLTextAreaElement;
+  annotationText.addEventListener("input", () => {
+    annotationText.style.height = "auto";
+    annotationText.style.height = `${annotationText.scrollHeight}px`;
+  });
   const addNoteBtn = iconBtn("add-note-btn", "sp-btn primary", "\u2795", "Add");
 
   // Annotation wrapper — contains textarea + embedded picker icon.
@@ -624,6 +628,7 @@ export async function mountSidePanel(
           elementScreenshotData,
         });
         annotationText.value = "";
+        annotationText.style.height = "auto";
         clearSelectedElement();
       });
     } catch {
