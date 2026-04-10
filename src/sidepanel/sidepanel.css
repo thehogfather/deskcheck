@@ -459,7 +459,7 @@ html, body {
 }
 
 .annotation-toolbar #pick-element-btn {
-  flex: 0;
+  flex: 0 0 auto;
   padding: 4px 8px;
   border: none;
   background: transparent;
@@ -469,7 +469,6 @@ html, body {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-width: 0;
 }
 
 .annotation-toolbar #pick-element-btn .btn-icon {
@@ -561,8 +560,8 @@ html, body {
 #pick-element-btn .btn-icon::before {
   width: 16px;
   height: 16px;
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='4'/%3E%3Cpath d='M8 1v3M8 12v3M1 8h3M12 8h3'/%3E%3C/svg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='4'/%3E%3Cpath d='M8 1v3M8 12v3M1 8h3M12 8h3'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='3.5'/%3E%3Cpath d='M8 1v3M8 12v3M1 8h3M12 8h3'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='3.5'/%3E%3Cpath d='M8 1v3M8 12v3M1 8h3M12 8h3'/%3E%3C/svg%3E");
 }
 
 /* Plus (add note) */
