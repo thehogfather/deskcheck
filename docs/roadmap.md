@@ -163,6 +163,26 @@ status: draft
   - [x] Existing gating logic is preserved: lifecycle controls hidden when no session is active, annotation controls hidden pre-session
   - [x] All existing tests pass; new tests cover the updated DOM structure and control placement
 
+### 13. Standalone dogfooding mode
+- **Persona**: Bug Reporter
+- **Goal**: Let developers use DeskCheck to record bugs in DeskCheck itself by loading the side panel as a regular webpage that the extension can record against
+- **Impact**: Medium | **Effort**: Small-Medium
+- **Description**: The side panel HTML currently runs as a `chrome-extension://` page, which the extension cannot attach its debugger to. This feature adds a standalone entry point that mounts the same side panel UI at a normal `http://localhost` URL, with demo/mock implementations of `SidePanelDeps` (the existing DI seam) so the panel renders a representative session state — fake events in the timeline, mock metrics, working controls that log to console instead of messaging the service worker. A `make demo` target starts a local dev server serving this page. The developer then opens the page in a regular Chrome tab and uses the DeskCheck extension to record issues, creating a self-referential feedback loop.
+- **Dependencies**: Feature #12 (Control layout refinement) — the standalone mode should reflect the final control layout. #12 is complete.
+- **Constraints**:
+  - **Reuse, don't copy.** The demo entry point must import and call `mountSidePanel` from `src/sidepanel/sidepanel.ts` — the same function the real extension uses. No forked or duplicated panel code. The only new code is the mock `SidePanelDeps` implementation and the thin entry-point wiring.
+  - **Existing tests stay green.** All existing unit and integration tests must continue to pass without modification. The demo mode must not alter any production code paths — if a change to `sidepanel.ts` or its imports is needed to support the mock deps, it must be backward-compatible and covered by the existing test suite.
+  - **Mock deps, not mock UI.** The mock `SidePanelDeps` should simulate realistic service-worker behaviour (delayed responses, state transitions) rather than stubbing everything to no-ops, so the demo is useful for spotting real UX issues.
+- **Definition of done**:
+  - [x] A `demo/` entry point (e.g., `demo/standalone.html` + `demo/standalone-entry.ts`) mounts the side panel via the existing `mountSidePanel` function with mock `SidePanelDeps` — no copied or forked panel code
+  - [x] Mock deps supply realistic demo data: a pre-populated event timeline (mix of interaction, console, network, annotation, screenshot events), session metrics, and working PII mode selector
+  - [x] Controls that would message the service worker (Start, Pause, Stop, etc.) update local UI state and log to console instead of failing silently
+  - [x] `make demo` starts a local dev server (Vite) serving the standalone page at `localhost`
+  - [x] The page renders identically to the real side panel — same CSS, same component tree, same layout
+  - [ ] DeskCheck extension can attach to and record the standalone page (verified manually)
+  - [x] Demo page works without any Chrome extension APIs — no `chrome.*` calls at runtime
+  - [x] All existing tests pass without modification — no production code paths are altered by this feature
+
 ---
 
 ## Priority: Later
@@ -265,6 +285,7 @@ graph LR
     6[6. Voice annotations]
     8[8. Side panel UX] --> 11[11. Side panel session controls]
     11 --> 12[12. Control layout refinement]
+    12 --> 13[13. Standalone dogfooding mode]
     9[9. Active tab group]
 ```
 
@@ -272,5 +293,6 @@ graph LR
 - Feature #7 (Opt-in tab switching) builds on feature #2 — the "recorded tab only" invariant is the precondition that gives tab switching a clear meaning (moving an explicit pointer rather than implicitly following the user).
 - Feature #11 (Side panel session controls: lifecycle, feedback, gated UI, reset) depends on #8 (Side panel UX) — all its pieces live in the side panel form and event list. Absorbs the former feature #10 (session lifecycle controls).
 - Feature #12 (Control layout refinement) depends on #11 — it reshuffles the controls that #11 introduced (lifecycle top bar, embedded picker, icon buttons, screenshot removal).
+- Feature #13 (Standalone dogfooding mode) depends on #12 — the standalone page should reflect the final control layout. #12 is complete, so #13 is unblocked.
 - Features #8 (Side panel UX) and #9 (Active tab group) are complementary "active session visibility" cues but can ship independently.
 - All other features are independent.

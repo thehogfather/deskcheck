@@ -1,4 +1,4 @@
-.PHONY: dev build test test-e2e typecheck clean bump-patch bump-minor
+.PHONY: dev build test test-e2e typecheck clean bump-patch bump-minor demo
 
 dev:
 	npx vite build --watch --mode development
@@ -14,6 +14,9 @@ test-e2e: build
 
 typecheck:
 	npx tsc --noEmit
+
+demo:
+	npx vite --config demo/vite.config.ts
 
 clean:
 	rm -rf dist
