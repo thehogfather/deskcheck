@@ -235,13 +235,14 @@ html, body {
 .pii-mode-option {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 2px;
   font-size: 12px;
   color: var(--text);
   cursor: pointer;
-  padding: 5px 6px;
+  padding: 6px 6px;
   border: 1px solid var(--border);
   margin-left: -1px;
   transition: background 0.15s ease, color 0.15s ease;
@@ -272,7 +273,12 @@ html, body {
 }
 
 .pii-mode-option .hint {
-  display: none;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.pii-mode-option:has(input:checked) .hint {
+  color: rgba(255, 255, 255, 0.6);
 }
 
 #metrics-row {
