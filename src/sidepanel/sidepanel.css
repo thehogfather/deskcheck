@@ -517,6 +517,16 @@ html, body {
   background: var(--accent-hover);
 }
 
+/* Modal overlay effect — a huge box-shadow spread covers the viewport
+ * behind the dialog, tinting it without extra DOM or JS. */
+.pre-export-reminder:not(.hidden),
+#discard-confirm-dialog:not(.hidden) {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4),
+              0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
 /* Discard confirmation shares the pre-export reminder structure but
  * uses a danger colour scheme instead of warning. */
 #discard-confirm-dialog {
