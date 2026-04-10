@@ -944,9 +944,11 @@ export async function mountSidePanel(
 
   function renderAllEvents() {
     clearChildren(eventsList);
+    eventsList.classList.add("bulk-render");
     for (const e of events) {
       appendRow(eventToRow(e, screenshots));
     }
+    eventsList.classList.remove("bulk-render");
     // Re-append the new-events chip after clearing (it lives in the
     // scroll container for sticky positioning).
     eventsList.appendChild(newEventsChip);

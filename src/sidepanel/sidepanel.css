@@ -110,6 +110,11 @@ html, body {
   background: var(--bg);
 }
 
+@keyframes row-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .event-row {
   display: flex;
   flex-wrap: wrap;
@@ -121,6 +126,11 @@ html, body {
   border-left: 3px solid var(--bg-elev-2);
   border-radius: 4px;
   font-size: 12px;
+  animation: row-enter 0.2s ease-out;
+}
+
+.bulk-render .event-row {
+  animation: none;
 }
 
 .event-row:hover {
