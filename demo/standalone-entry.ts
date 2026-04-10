@@ -5,6 +5,7 @@
 // without any Chrome extension APIs. Controls log to console instead
 // of messaging a service worker.
 
+import "../src/sidepanel/sidepanel.css";
 import { mountSidePanel, type SidePanelDeps, type StorageOnChangedApi } from "../src/sidepanel/sidepanel";
 import type { Message, TimelineEvent, SessionMetadata, SessionMetrics } from "../src/types";
 import type { SessionStatus } from "../src/lib/session-status";

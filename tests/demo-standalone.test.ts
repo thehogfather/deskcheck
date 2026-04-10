@@ -40,10 +40,10 @@ describe("feature #13 — standalone dogfooding mode", () => {
     expect(content).toMatch(/standalone-entry\.ts/);
   });
 
-  it("demo/standalone.html references the real sidepanel.css", () => {
-    const html = resolve(repoRoot, "demo", "standalone.html");
-    const content = readFileSync(html, "utf8");
-    expect(content).toMatch(/sidepanel\.css/);
+  it("demo/standalone-entry.ts imports the real sidepanel.css", () => {
+    const entry = resolve(repoRoot, "demo", "standalone-entry.ts");
+    const content = readFileSync(entry, "utf8");
+    expect(content).toMatch(/import\s+["']\.\.\/src\/sidepanel\/sidepanel\.css["']/);
   });
 
   it("Makefile has a demo target", () => {
