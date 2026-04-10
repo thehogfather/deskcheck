@@ -834,7 +834,7 @@ describe("feature-11 loading feedback", () => {
     await new Promise((r) => setTimeout(r, 40));
     expect(addBtn.disabled).toBe(false);
     expect(addBtn.getAttribute("aria-busy")).toBeNull();
-    expect(addBtn.querySelector(".btn-label")!.textContent).toBe("Add note");
+    expect(addBtn.querySelector(".btn-label")!.textContent).toBe("Add");
   });
 
   it("Download shows a loading state while export is in flight", async () => {
