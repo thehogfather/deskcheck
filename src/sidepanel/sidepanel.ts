@@ -257,7 +257,7 @@ export async function mountSidePanel(
     id: "annotation-text",
     placeholder: "What did you expect? What happened instead?",
   }) as HTMLTextAreaElement;
-  const addNoteBtn = iconBtn("add-note-btn", "sp-btn primary", "\u2795", "Add note");
+  const addNoteBtn = iconBtn("add-note-btn", "sp-btn primary", "\u2795", "Add");
 
   // Annotation wrapper — contains textarea + embedded picker icon.
   const annotationWrapper = el("div", { class: "annotation-wrapper" });
@@ -859,13 +859,16 @@ export async function mountSidePanel(
     if (model.annotation) {
       controls.appendChild(elementChip);
 
-      // Build the annotation wrapper: textarea + embedded picker icon.
+      // Build the annotation wrapper: textarea on top, toolbar row below.
       clearChildren(annotationWrapper);
       annotationWrapper.appendChild(annotationText);
-      if (model.elementPicker) annotationWrapper.appendChild(pickElementBtn);
+      const annotationToolbar = el("div", { class: "annotation-toolbar" });
+      if (model.elementPicker) annotationToolbar.appendChild(pickElementBtn);
+      const toolbarSpacer = el("div", { class: "annotation-toolbar-spacer" });
+      annotationToolbar.appendChild(toolbarSpacer);
+      annotationToolbar.appendChild(addNoteBtn);
+      annotationWrapper.appendChild(annotationToolbar);
       controls.appendChild(annotationWrapper);
-
-      controls.appendChild(addNoteBtn);
     }
 
     // Reminder panels and error line — stay in controls as intentional

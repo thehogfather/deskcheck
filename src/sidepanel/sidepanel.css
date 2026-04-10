@@ -364,12 +364,11 @@ html, body {
 
 #annotation-text {
   width: 100%;
-  min-height: 64px;
-  background: var(--bg);
+  min-height: 48px;
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px;
+  border: none;
+  padding: 10px 12px 6px;
   font-family: inherit;
   font-size: 12px;
   resize: vertical;
@@ -377,7 +376,6 @@ html, body {
 
 #annotation-text:focus {
   outline: none;
-  border-color: var(--accent);
 }
 
 .sp-row {
@@ -435,50 +433,71 @@ html, body {
 /* ── Feature #12: annotation wrapper + button icons ── */
 
 .annotation-wrapper {
-  position: relative;
   width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-color 0.15s ease;
+  overflow: hidden;
 }
 
-.annotation-wrapper #annotation-text {
-  padding-bottom: 32px;
+.annotation-wrapper:focus-within {
+  border-color: var(--accent);
 }
 
-.annotation-wrapper #pick-element-btn {
-  position: absolute;
-  left: 6px;
-  bottom: 6px;
+.annotation-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+.annotation-toolbar-spacer {
+  flex: 1;
+}
+
+.annotation-toolbar #pick-element-btn {
   flex: 0;
   padding: 4px 8px;
   border: none;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
 }
 
-.annotation-wrapper #pick-element-btn .btn-icon {
+.annotation-toolbar #pick-element-btn .btn-icon {
   margin-right: 0;
 }
 
-.annotation-wrapper #pick-element-btn .btn-label {
+.annotation-toolbar #pick-element-btn .btn-label {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
-.annotation-wrapper #pick-element-btn:hover {
+.annotation-toolbar #pick-element-btn:hover {
   color: var(--accent);
   background: var(--bg-elev-2);
 }
 
-.annotation-wrapper #pick-element-btn.picker-active {
+.annotation-toolbar #pick-element-btn.picker-active {
   color: var(--accent);
   background: var(--bg-elev-2);
   box-shadow: inset 0 0 0 1px var(--accent);
   cursor: crosshair;
+}
+
+.annotation-toolbar #add-note-btn {
+  flex: 0;
+  min-width: 0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
 }
 
 /* ── Feature #12: button icon + label structure ── */
