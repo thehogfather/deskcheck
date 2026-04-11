@@ -4,6 +4,12 @@
 // first-run flag remain here.
 export const STORAGE_SESSION = "deskcheck_session";
 export const STORAGE_PRIVACY_FIRST_RUN_SEEN = "deskcheck_privacy_first_run_seen";
+// Feature #14 phase 1: CLI handoff configuration. Holds the listener URL +
+// bearer token once the user has pasted them from `deskcheck listen`'s
+// ready line. Absence of this key is the opt-in kill switch — the service
+// worker's export path never emits localhost traffic unless this key is
+// present and its listener_url passes the loopback validator.
+export const STORAGE_HANDOFF_CONFIG = "deskcheck_handoff";
 
 // Side panel entry point. The manifest intentionally has NO
 // `side_panel.default_path` — a global default creates a
