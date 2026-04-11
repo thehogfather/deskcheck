@@ -2,9 +2,9 @@
 // imports so the unit tests can run without any fake chrome global.
 //
 // Scope: URL validation (loopback only), constant-time string compare
-// (for any future response-token compare), token redaction (so the token
-// never lands in a console log verbatim), and a structural type guard
-// for the `deskcheck_handoff` chrome.storage.local record.
+// (so any future token compare cannot leak via timing), token redaction
+// (so the token never lands in a console log verbatim), and a structural
+// type guard for the `deskcheck_handoff` chrome.storage.local record.
 //
 // The URL validator is the structural enforcement of the brief's
 // "127.0.0.1 only" constraint. Any change to this file should be
@@ -43,47 +43,72 @@ export function isHandoffConfig(value: unknown): value is HandoffConfig {
   );
 }
 
+const ALLOWED_LOOPBACK_HOSTS = new Set([
+  "127.0.0.1",
+  "localhost",
+  // URL.hostname strips the square brackets from an IPv6 literal so the
+  // allowlist uses the bare form. The URL constructor still requires the
+  // brackets in the input string.
+  "[::1]",
+]);
+
 /**
- * Reject anything that is not a strict loopback HTTP URL:
- *   - scheme MUST be `http:` (not https, not anything else)
- *   - host MUST be `127.0.0.1`, `localhost`, or `[::1]`
- *   - port MUST be present and numeric
- *   - path MUST be empty or `/` (no `/upload` at this level — that's the
- *     CLI endpoint, the config record stores only the origin)
- *   - query and fragment MUST be absent
- *
- * Adversarial cases the validator MUST reject (pinned by handoff.test.ts):
- *   - `http://127.0.0.1.evil.com:8787` — DNS suffix attack
- *   - `http://127.0.0.1:8787/../upload` — path-traversal
- *   - `http://127.0.0.1:8787?x=1` — query string
- *   - `http://127.0.0.1:8787#frag` — fragment
- *   - `https://127.0.0.1:8787` — https (MV3 extension fetch to self-signed is moot)
- *   - `http://evil.com` — non-loopback host
- *   - `http://127.0.0.1` — missing port
+ * Reject anything that is not a strict loopback HTTP URL.
+ * See the file header for the exhaustive accept/reject set.
  */
-export function isValidLoopbackUrl(_input: string): boolean {
-  throw new Error("isValidLoopbackUrl not implemented");
+export function isValidLoopbackUrl(input: string): boolean {
+  if (typeof input !== "string" || input.length === 0) return false;
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:") return false;
+  // URL.hostname is lowercased already, but be explicit for clarity.
+  const host = url.hostname.toLowerCase();
+  // Reconstruct the [::1] form with brackets — URL.hostname strips them.
+  const hostWithBrackets = host === "::1" ? "[::1]" : host;
+  if (!ALLOWED_LOOPBACK_HOSTS.has(hostWithBrackets)) return false;
+  if (url.port === "") return false;
+  const portNum = Number.parseInt(url.port, 10);
+  if (!Number.isFinite(portNum) || portNum <= 0 || portNum > 65535) return false;
+  // URL normalises `/../upload` to `/upload` — so `pathname !== ""` and
+  // `pathname !== "/"` both catch path-traversal and stray paths.
+  if (url.pathname !== "" && url.pathname !== "/") return false;
+  if (url.search !== "") return false;
+  if (url.hash !== "") return false;
+  // Reject anything with credentials baked in.
+  if (url.username !== "" || url.password !== "") return false;
+  return true;
 }
 
 /**
  * Constant-time string compare. Returns true iff the two strings are
- * byte-equal AND have the same length. Zero early-exits; loop length is
- * always `max(a.length, b.length)` so a length-mismatch does not leak via
- * timing. For bearer tokens specifically — the response is compared
- * extension-side after receiving the CLI's `ok: true` body, and the CLI
- * compares the `Authorization: Bearer` header against its own token on
- * the listener side.
+ * byte-equal AND have the same length. The loop length is always
+ * `max(a.length, b.length)` so a length mismatch cannot leak via timing.
  */
-export function constantTimeEqual(_a: string, _b: string): boolean {
-  throw new Error("constantTimeEqual not implemented");
+export function constantTimeEqual(a: string, b: string): boolean {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const len = Math.max(a.length, b.length);
+  let acc = 0;
+  for (let i = 0; i < len; i++) {
+    // charCodeAt returns NaN past the end — coerce to 0 for a deterministic
+    // accumulator. Equal-length strings with equal contents yield acc === 0.
+    const ca = i < a.length ? a.charCodeAt(i) : 0;
+    const cb = i < b.length ? b.charCodeAt(i) : 0;
+    acc |= ca ^ cb;
+  }
+  return acc === 0 && a.length === b.length;
 }
 
 /**
  * Redact any 16+ hex-char token-like substring from an arbitrary string,
- * replacing with `[redacted]`. Applied to every `console.warn` path in
- * feature-14 code so the token never lands in the DevTools log verbatim
- * even when a failure surfaces the underlying error object.
+ * replacing each match with `[redacted]`. Applied to every `console.warn`
+ * path in feature-14 code so the token never lands in the DevTools log
+ * verbatim even when a failure surfaces the underlying error object.
  */
-export function redactToken(_text: string): string {
-  throw new Error("redactToken not implemented");
+export function redactToken(text: string): string {
+  if (typeof text !== "string") return "";
+  return text.replace(/[a-f0-9]{16,}/gi, "[redacted]");
 }

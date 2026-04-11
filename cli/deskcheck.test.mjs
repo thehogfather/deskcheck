@@ -267,4 +267,90 @@ describe("feature-14 phase 1: deskcheck listen CLI", () => {
       // handle is cleaned up in afterEach
     }
   });
+
+  // ── S13 — session id regex rejects path traversal attempts ──────────────
+
+  it("S13 — path-traversal session_id returns 400 with no file on disk", async () => {
+    handle = await spawnListener(tmpOut);
+    const zip = fixtureZip();
+    const res = await postZip(handle.ready, "../../../etc/passwd", handle.ready.token, zip);
+    expect(res.status).toBe(400);
+
+    // Nothing anywhere under tmpOut
+    const files = await readdir(tmpOut);
+    expect(files.find((f) => f.endsWith(".zip"))).toBeUndefined();
+  });
+
+  // ── S14 — Content-Length over the 200 MB cap returns 413 immediately ────
+
+  it("S14 — Content-Length exceeding 200 MB returns 413 before streaming the body", async () => {
+    handle = await spawnListener(tmpOut);
+    // Use `fetch` with a tiny body but a lying Content-Length header.
+    // Some fetch implementations normalize or reject a Content-Length
+    // mismatch; we instead use a raw http request.
+    const { request } = await import("node:http");
+    const result = await new Promise((resolveReq) => {
+      const req = request(
+        `${handle.ready.url}/upload`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/zip",
+            "Authorization": `Bearer ${handle.ready.token}`,
+            "X-DeskCheck-Session-Id": "sess-too-big",
+            "Content-Length": String(300 * 1024 * 1024),
+          },
+        },
+        (res) => {
+          let body = "";
+          res.on("data", (c) => { body += c; });
+          res.on("end", () => resolveReq({ status: res.statusCode, body }));
+        },
+      );
+      req.on("error", (err) => resolveReq({ status: 0, body: String(err) }));
+      req.end(); // no body
+    });
+    expect(result.status).toBe(413);
+  });
+
+  // ── S15 — wrong Content-Type returns 415 ────────────────────────────────
+
+  it("S15 — Content-Type other than application/zip returns 415", async () => {
+    handle = await spawnListener(tmpOut);
+    const zip = fixtureZip();
+    const res = await postZip(handle.ready, "sess-s15", handle.ready.token, zip, "application/json");
+    expect(res.status).toBe(415);
+  });
+
+  // ── S16 — atomic write: tmp + rename ─────────────────────────────────────
+
+  it("S16 — successful write produces exactly one .zip (not a .tmp debris file)", async () => {
+    handle = await spawnListener(tmpOut);
+    const zip = fixtureZip();
+    const res = await postZip(handle.ready, "sess-s16", handle.ready.token, zip);
+    expect(res.status).toBe(201);
+
+    const files = await readdir(tmpOut);
+    const zips = files.filter((f) => f.endsWith(".zip"));
+    const tmps = files.filter((f) => f.startsWith(".tmp-"));
+    expect(zips).toEqual(["sess-s16.zip"]);
+    expect(tmps).toEqual([]);
+  });
+
+  // ── S17 — replay defence: second POST with same session id returns 409 ─
+
+  it("S17 — replay with the same session_id returns 409 and the first file is intact", async () => {
+    handle = await spawnListener(tmpOut);
+    const zip = fixtureZip();
+    const first = await postZip(handle.ready, "sess-s17", handle.ready.token, zip);
+    expect(first.status).toBe(201);
+
+    // Different body contents second time to prove the first was preserved.
+    const zip2 = zipSync({ "session.json": strToU8('{"schema_version":"999.0.0"}') });
+    const second = await postZip(handle.ready, "sess-s17", handle.ready.token, zip2);
+    expect(second.status).toBe(409);
+
+    const written = await readFile(join(tmpOut, "sess-s17.zip"));
+    expect(Buffer.compare(Buffer.from(zip), written)).toBe(0);
+  });
 });
