@@ -226,6 +226,29 @@ status: draft
   - [x] Demo page works without any Chrome extension APIs — no `chrome.*` calls at runtime
   - [x] All existing tests pass without modification — no production code paths are altered by this feature
 
+### 15. Lucide icons across the UI
+- **Persona**: Bug Reporter
+- **Goal**: Replace the ad-hoc Unicode glyphs used throughout the side panel with a consistent, professionally-drawn icon set so the control surface looks polished and every icon reads unambiguously at the side panel's narrow width
+- **Impact**: Medium | **Effort**: Small
+- **Description**: Feature #12 introduced icons on every button using Unicode characters (e.g., `\u25B6\uFE0E` for play, `\u275A\u275A` for pause, `\u2913` for download, `\u2715` for discard, `\u21BA` for reset, `\u2316` for the element picker, `\u2795` for add). The Unicode approach ships zero bytes but has real problems: glyphs render inconsistently across fonts and platforms, several are hard to recognise at small sizes (the crosshair and reset symbols in particular), and the visual weight varies wildly between icons so the toolbar does not feel coherent. This feature swaps every icon in the side panel (and any other UI surface — first-run notice, pre-export reminder, event list badges) for [Lucide](https://lucide.dev) icons, which are MIT-licensed, tree-shakeable SVGs with a consistent 24px stroke-based aesthetic. Since the project is vanilla TypeScript with no framework, the integration path is the plain `lucide` package (not `lucide-react`), importing individual icons as SVG strings or DOM nodes and inserting them where the Unicode character currently lives. The `iconBtn` helper in `sidepanel.ts:242` is the natural seam — change its `icon: string` parameter to accept a Lucide icon node and update every call site. The save/restore cycle in `withLoadingState` (sidepanel.ts:713) already targets `.btn-label` specifically to preserve icon nodes, so SVG children will survive loading transitions without extra work.
+- **Dependencies**: Feature #12 (Side panel control layout refinement) — #12 introduced the icons this feature replaces. #12 is complete.
+- **Constraints**:
+  - **No framework churn.** The project is vanilla TypeScript and must stay that way. Use the plain `lucide` package, not `lucide-react` or any framework wrapper.
+  - **Tree-shake the import.** Import individual icons (e.g., `import { Play, Pause, Download } from "lucide"`), never the whole set, so the bundle only pays for icons that are actually used.
+  - **Every Unicode icon goes.** This is a full sweep — no mixed Unicode/Lucide state. If a surface uses a glyph that does not have a direct Lucide equivalent, pick the closest Lucide icon rather than leaving the glyph in place.
+  - **Accessibility preserved.** Icons are decorative (`aria-hidden="true"`); the button's accessible name comes from its text label, which stays unchanged. Screen-reader behaviour must not regress.
+  - **Visual regression check.** The side panel is the primary surface — run the demo mode (feature #13, `make demo`) before and after and confirm every control still reads correctly at the narrow panel width.
+- **Definition of done**:
+  - [ ] `lucide` is added as a dependency and individual icons are imported per call site (no barrel imports)
+  - [ ] `iconBtn` in `src/sidepanel/sidepanel.ts` accepts a Lucide icon node (or SVG string) in place of the current `icon: string` parameter, and every call site is updated
+  - [ ] Start, Pause, Resume, Stop/Download, Discard, Reset, element picker, and Add-note buttons all render Lucide icons
+  - [ ] Any remaining Unicode icon glyphs elsewhere in the side panel UI (first-run notice, pre-export reminder, event list badges) are replaced with Lucide equivalents
+  - [ ] Icon nodes carry `aria-hidden="true"` and the button's accessible name continues to come from the text label
+  - [ ] `withLoadingState` still correctly swaps labels without destroying icon nodes (existing `.btn-label`-scoped behaviour verified by test)
+  - [ ] Bundle size impact is measured and recorded in the PR description (expected delta: a few KB, since only the imported icons ship)
+  - [ ] Demo mode (`make demo`) renders the full icon set and is visually checked before the PR lands
+  - [ ] All existing tests pass; any test that asserted on a specific Unicode glyph is updated to match the new DOM
+
 ---
 
 ## Priority: Later
@@ -329,6 +352,7 @@ graph LR
     8[8. Side panel UX] --> 11[11. Side panel session controls]
     11 --> 12[12. Control layout refinement]
     12 --> 13[13. Standalone dogfooding mode]
+    12 --> 15[15. Lucide icons]
     9[9. Active tab group]
     14[14. CLI integration]
 ```
@@ -340,4 +364,5 @@ graph LR
 - Feature #13 (Standalone dogfooding mode) depends on #12 — the standalone page should reflect the final control layout. #12 is complete, so #13 is unblocked.
 - Features #8 (Side panel UX) and #9 (Active tab group) are complementary "active session visibility" cues but can ship independently.
 - Feature #14 (CLI integration) has no strict dependencies. It benefits from #5 (OPFS) once larger sessions can flow end-to-end without memory limits, and from #13 (standalone dogfooding) which gives a convenient local target for iterating on the listener protocol — but neither is a blocker.
+- Feature #15 (Lucide icons) depends on #12 — it replaces the Unicode icons that #12 introduced.
 - All other features are independent.
