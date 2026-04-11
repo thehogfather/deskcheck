@@ -67,8 +67,7 @@ describe("handoff-store", () => {
   });
 
   it("getHandoffConfig rejects malformed stored values (type guard)", async () => {
-    // @ts-expect-error — intentionally stashing a non-config value
-    chrome.storage.local.set({
+    await chrome.storage.local.set({
       [STORAGE_HANDOFF_CONFIG]: { listener_url: "http://127.0.0.1:8787" /* missing fields */ },
     });
     const read = await getHandoffConfig();
@@ -76,7 +75,6 @@ describe("handoff-store", () => {
   });
 
   it("S4 — getHandoffConfig returns null on storage read failure (bias toward download path)", async () => {
-    // @ts-expect-error — replace .get with a throwing stub
     chrome.storage.local.get = vi.fn().mockRejectedValue(new Error("storage unavailable"));
     const read = await getHandoffConfig();
     expect(read).toBeNull();
@@ -94,7 +92,6 @@ describe("handoff-store", () => {
   });
 
   it("clearHandoffConfig swallows storage errors silently", async () => {
-    // @ts-expect-error — replace .remove with a throwing stub
     chrome.storage.local.remove = vi.fn().mockRejectedValue(new Error("boom"));
     await expect(clearHandoffConfig()).resolves.toBeUndefined();
     expect(warnSpy).toHaveBeenCalled();

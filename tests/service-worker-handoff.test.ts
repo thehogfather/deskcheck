@@ -308,4 +308,104 @@ describe("feature-14 phase 1: service worker handoff wiring", () => {
     // And since the handoff succeeded, chrome.downloads.download is NOT called.
     expect(mockChrome.downloads.download).not.toHaveBeenCalled();
   });
+
+  // ── S11 — happy path: handoff ok, SESSION_CLEARED broadcast once ─────────
+
+  it("S11 — handoff ok does NOT call downloads.download and broadcasts SESSION_CLEARED", async () => {
+    vi.resetModules();
+    mockChrome = installFakeChrome({
+      deskcheck_handoff: {
+        listener_url: "http://127.0.0.1:54329",
+        token: "0123456789abcdef0123456789abcdef",
+        created_at: "2026-04-11T22:00:00.000Z",
+      },
+    });
+    fetchSpy.mockResolvedValue(new Response("{\"ok\":true}", { status: 201 }));
+
+    const handlers = await loadServiceWorker(mockChrome);
+    messageHandler = handlers.messageHandler;
+    mockChrome.runtime.sendMessage.mockClear();
+
+    await startAndStopSession(messageHandler);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(mockChrome.downloads.download).not.toHaveBeenCalled();
+
+    // SESSION_CLEARED broadcast confirms the OPFS cleanup path ran.
+    const broadcasts = mockChrome.runtime.sendMessage.mock.calls.map(
+      (c) => c[0] as { type?: string },
+    );
+    const clears = broadcasts.filter((b) => b?.type === "SESSION_CLEARED");
+    expect(clears.length).toBe(1);
+  });
+
+  // ── S10 — fallback path: handoff 401 → download + warning broadcast ──────
+
+  it("S10 — handoff 401 falls through to download and broadcasts EXPORT_WARNING", async () => {
+    vi.resetModules();
+    mockChrome = installFakeChrome({
+      deskcheck_handoff: {
+        listener_url: "http://127.0.0.1:54329",
+        token: "0123456789abcdef0123456789abcdef",
+        created_at: "2026-04-11T22:00:00.000Z",
+      },
+    });
+    fetchSpy.mockResolvedValue(new Response("{\"error\":\"unauthorized\"}", { status: 401 }));
+
+    const handlers = await loadServiceWorker(mockChrome);
+    messageHandler = handlers.messageHandler;
+    mockChrome.runtime.sendMessage.mockClear();
+
+    await startAndStopSession(messageHandler);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // Download path is the fallback — called once.
+    expect(mockChrome.downloads.download).toHaveBeenCalledTimes(1);
+
+    const broadcasts = mockChrome.runtime.sendMessage.mock.calls.map(
+      (c) => c[0] as { type?: string; message?: string },
+    );
+    const warnings = broadcasts.filter((b) => b?.type === "EXPORT_WARNING");
+    expect(warnings.length).toBe(1);
+    expect(warnings[0].message).toMatch(/listener|downloads/i);
+
+    // Download succeeded → session cleared as usual.
+    const clears = broadcasts.filter((b) => b?.type === "SESSION_CLEARED");
+    expect(clears.length).toBe(1);
+  });
+
+  // ── S12 — data retention: both transports fail → OPFS NOT cleared ────────
+
+  it("S12 — both handoff and download failing retains the OPFS session (no SESSION_CLEARED broadcast)", async () => {
+    vi.resetModules();
+    mockChrome = installFakeChrome({
+      deskcheck_handoff: {
+        listener_url: "http://127.0.0.1:54329",
+        token: "0123456789abcdef0123456789abcdef",
+        created_at: "2026-04-11T22:00:00.000Z",
+      },
+    });
+    fetchSpy.mockRejectedValue(new Error("ECONNREFUSED"));
+    // The download path throws too — simulating a hard failure on both sides.
+    const handlers = await loadServiceWorker(mockChrome);
+    messageHandler = handlers.messageHandler;
+    mockChrome.downloads.download.mockRejectedValue(new Error("download failed"));
+    mockChrome.runtime.sendMessage.mockClear();
+
+    await startAndStopSession(messageHandler);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(mockChrome.downloads.download).toHaveBeenCalledTimes(1);
+
+    const broadcasts = mockChrome.runtime.sendMessage.mock.calls.map(
+      (c) => c[0] as { type?: string },
+    );
+    const clears = broadcasts.filter((b) => b?.type === "SESSION_CLEARED");
+    // The load-bearing invariant: no session_cleared → session retained.
+    expect(clears.length).toBe(0);
+
+    // Warning is still broadcast so the user sees something went wrong.
+    const warnings = broadcasts.filter((b) => b?.type === "EXPORT_WARNING");
+    expect(warnings.length).toBeGreaterThan(0);
+  });
 });
