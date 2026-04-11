@@ -73,6 +73,14 @@
       "branch": "feature/feature-12",
       "status": "completed",
       "released_at": "2026-04-09T12:48:21.970021+00:00"
+    },
+    {
+      "feature_id": "feature-14-phase-2",
+      "feature_title": "CLI integration Phase 2 \u2014 terminal-launched sessions",
+      "claimed_by": "orch-20260411-234231-94601",
+      "claimed_at": "2026-04-11T22:42:55.637313+00:00",
+      "branch": "feature/feature-14-phase-2",
+      "status": "active"
     }
   ]
 }
