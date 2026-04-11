@@ -81,7 +81,60 @@ Discriminated union for timeline events: interaction, viewport_resize, network_e
 5. CDP events (network errors, console, exceptions) flow directly from debugger client → storage
 6. **Live event feed**: side panel subscribes to `chrome.storage.onChanged` filtered to the events key. Each delta appends new rows to the feed without re-rendering existing rows (DOM nodes are preserved by identity)
 7. **Cross-window**: switching focus to another window fires `chrome.windows.onFocusChanged` → side panel re-fetches `GET_SESSION_STATE` so each window's panel reflects the global session
-8. User clicks "Stop & download" in the side panel (or in the in-page widget) → service worker ends session, builds zip, triggers download, clears storage. The side panel observes `session.end_time` flipping via storage onChanged and transitions to idle (revealed screenshot thumbnails are unmounted from the DOM)
+8. User clicks "Stop & download" in the side panel → service worker ends session, builds zip, routes the zip via the selected transport (CLI handoff if attached, else the existing `chrome.downloads.download` path), and only clears OPFS once at least one transport has succeeded. The side panel observes `session.end_time` flipping via storage onChanged and transitions to idle (revealed screenshot thumbnails are unmounted from the DOM).
+
+### CLI handoff (feature #14 phase 1)
+
+Optional export transport that lets a developer run `deskcheck listen --out DIR` in a terminal and receive session zips directly at a known on-disk path instead of going through the browser Downloads folder. The handoff is **opt-in** — absence of the `deskcheck_handoff` key in `chrome.storage.local` is the structural kill switch; manual sessions behave exactly as they did pre-feature-14.
+
+```
+┌─────────────┐    paste-line              ┌──────────────┐
+│  Side panel │ ─────────────────────────► │ chrome.storage│
+│ attach row  │                            │  .local key   │
+└─────────────┘                            │deskcheck_handoff
+                                           └──────┬───────┘
+                                                  │ read
+┌─────────────┐                                   ▼
+│  Service    │  EXPORT_SESSION  ┌──────────────────────┐
+│  Worker     │ ────────────────►│  getHandoffConfig()  │
+└──────┬──────┘                  └──────┬───────────────┘
+       │                                │ ok + valid URL
+       ▼                                ▼
+┌──────────────┐              ┌─────────────────┐
+│exportSession │  zipBytes    │ performHandoff  │ ───► POST http://127.0.0.1:<port>/upload
+│ Streaming()  │ ───────────► │  (handoff-post) │      Authorization: Bearer <token>
+└──────┬───────┘              └──────┬──────────┘      X-DeskCheck-Session-Id: <id>
+       │                             │ ok → skip download
+       │                             │ error → fall through + EXPORT_WARNING
+       ▼                             ▼
+   ┌──────────────────────┐   ┌──────────────────────┐
+   │ chrome.downloads     │ ◄─│ #async-error slot in │
+   │  .download (fallback)│   │  the side panel      │
+   └──────────────────────┘   └──────────────────────┘
+                │
+                ▼
+    ┌────────────────────┐
+    │  store.deleteSession
+    │  ONLY if ≥1 transport
+    │  succeeded (S12 invariant)
+    └────────────────────┘
+```
+
+**Binding constraints pinned by tests:**
+- Listener binds 127.0.0.1 only (`cli/deskcheck.test.mjs` D5 — non-loopback connect refused at the kernel).
+- Opt-in: no `deskcheck_handoff` key → zero network traffic from `EXPORT_SESSION` (`tests/service-worker-handoff.test.ts` D6).
+- Token lifetime: per-CLI-process bearer, single-use per session-id via an in-memory `usedSessions` set on the CLI (`cli/deskcheck.test.mjs` S17 replay → 409).
+- Data retention: both transports failing leaves the OPFS session intact (`tests/service-worker-handoff.test.ts` S12).
+- No schema change — `schema_version` stays at 1.2.0 and no handoff-related fields reach `session.json` (`src/lib/exporter.golden.test.ts` D10).
+
+**Files:**
+- `cli/deskcheck.mjs` — zero-dep Node CLI (stdlib `http`/`fs`/`crypto`/`path` only).
+- `src/lib/handoff.ts` — pure URL validator (strict loopback, rejects `127.0.0.1.evil.com`, `/../`, `?q`, `#frag`, `https`, credentials), `constantTimeEqual`, `redactToken`.
+- `src/lib/handoff-store.ts` — `chrome.storage.local` wrapper mirroring `privacy-store.ts`.
+- `src/background/handoff-post.ts` — pure `performHandoff(config, zipBytes, sessionId, fetchImpl)` returning a discriminated union.
+- `src/background/service-worker.ts` — transport selection in `EXPORT_SESSION` (single `if (handoff) { POST } else { download }` branch, ~50 lines).
+- `src/sidepanel/sidepanel.ts` — "Attach CLI listener" paste row, pre-session only. Token is never rendered back to the DOM (pinned by `tests/sidepanel-no-handoff-write.test.ts`).
+- Content scripts are forbidden from importing `handoff-store` (pinned by `tests/content-no-handoff-write.test.ts`).
 
 ## Export Schema (v1.2.0)
 
@@ -121,7 +174,7 @@ from the metadata alone. In `none` mode, no input events are emitted.
 - Widget and element picker use closed Shadow DOM
 - Password fields are masked as `[password]` in `full` mode; in `metadata` mode only their length/char-class flags are recorded; in `none` mode they are not recorded at all
 - PII capture mode (`full` | `metadata` | `none`) is selected per-session in the popup. `capturePayloadForMode` in `src/lib/pii-modes.ts` is the single chokepoint that decides whether the raw input value reaches the timeline; negative property tests assert raw values never appear in serialized events for non-`full` modes
-- No external network requests; all data stays local
+- No external network requests. The only network traffic DeskCheck can emit is an **opt-in** loopback POST to `http://127.0.0.1:<port>/upload` when the user has explicitly attached a CLI listener via `deskcheck listen`. The listener binds 127.0.0.1 only, requires a per-run bearer token, and the zip never leaves the machine
 - Session data cleared from storage after export
 - First-run privacy notice (shown once per install via `chrome.storage.local`) explains that DeskCheck captures the recorded tab's viewport, form inputs, and network headers — not the whole screen, not other tabs
 - Pre-export reminder panel surfaces inside the widget on every Stop & Download click; "Keep recording" cancels with no state changes, "Download" proceeds with the unchanged stop/export flow
