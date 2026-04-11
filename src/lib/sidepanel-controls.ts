@@ -39,6 +39,15 @@ export interface ControlVisibility {
   reset: boolean;
   /** The "paused" badge in the metrics row. */
   pausedBadge: boolean;
+  /**
+   * "Attach CLI listener" affordance — the feature-14 phase-1 paste row
+   * that accepts a `<listener-url> <token>` string from the CLI's
+   * stdout. Visible pre-session only (idle/stopped); hidden mid-session
+   * so the user cannot retarget a running recording to a different
+   * listener. The attached state is read from chrome.storage.local on
+   * mount, not recomputed here.
+   */
+  attachCliListener: boolean;
 }
 
 export interface ControlsModelInputs {
@@ -72,5 +81,7 @@ export function buildControlsModel(
     // An `idle` session with no residual state shows just Start.
     reset: isResetEligible(status) && hasResidualState,
     pausedBadge: status === "paused",
+    // CLI listener paste affordance — pre-session only.
+    attachCliListener: preSession,
   };
 }

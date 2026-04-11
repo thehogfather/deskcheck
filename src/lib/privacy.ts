@@ -8,6 +8,7 @@ export const PRIVACY_NOTICE_BULLETS: readonly string[] = [
   "Screenshots capture the visible viewport of the browser tab being recorded. Other tabs, other browser windows, the browser chrome itself, and anything outside the page (OS overlays, notifications, other apps) are never captured.",
   "Form inputs in the recorded tab are stored as you type them (passwords are masked, but other field values — email addresses, search queries, free-text fields — are stored verbatim).",
   "Network request and response headers for failed requests in the recorded tab are stored. Well-known auth headers like Authorization and Cookie are stripped, but custom headers are not.",
+  "Session exports stay on your machine unless you explicitly attach a local CLI listener (`deskcheck listen`). If attached, exports are POSTed to a loopback 127.0.0.1 address on your own machine — nothing ever leaves the device.",
 ] as const;
 
 export const PRIVACY_REMINDER_LINE =
@@ -50,8 +51,22 @@ to take screenshots until you switch back.
    should not leave the machine.
 3. Redact, delete, or recapture as needed before sharing.
 
-DeskCheck never transmits session data over the network. Everything stays on
-your machine until you choose to share it.
+## CLI handoff (optional)
+
+You can attach a local CLI listener via \`deskcheck listen\` to receive
+session exports directly at a known on-disk path instead of going through
+the browser's Downloads folder. The handoff is **opt-in** — if you have
+never attached a listener, DeskCheck never emits any network traffic.
+
+When a listener is attached, DeskCheck POSTs the finished zip to
+\`http://127.0.0.1:<port>/upload\` on your own machine. The listener only
+binds \`127.0.0.1\` (loopback), so the data never leaves the device and is
+not reachable from other hosts on your network. A per-run bearer token
+authenticates each upload. If the listener is unreachable at Stop time,
+DeskCheck falls back to the usual browser download and shows a warning.
+
+Everything in this export stayed on your machine during recording and
+will stay on your machine unless you decide to share it.
 `;
 
 /**
