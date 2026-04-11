@@ -104,6 +104,49 @@ status: draft
   - **Tests:**
     - [x] Gated visibility, loading state transitions, scroll-anchoring logic, lifecycle state machine (pause/resume), discard storage cleanup, confirmation cancel path, and reset behaviour are unit-tested where possible
 
+### 14. CLI integration: terminal-launched sessions with automatic handoff
+- **Persona**: Bug Reporter (primary), AI Consumer (secondary)
+- **Goal**: Eliminate the download-and-drop handoff step — let a developer start a DeskCheck session from the terminal (including from a Claude Code session) with a target URL, record against that URL in Chrome, and have the resulting session land directly at a known path the caller can read, without any manual zip download or drag-into-context step
+- **Impact**: High | **Effort**: Large
+- **Description**: Today the friction of shipping a session to an AI assistant is dominated by the manual handoff: stop & download, find the zip in Downloads, drag it into the assistant's context. This feature closes the loop with a small local process (`deskcheck` CLI) that the caller invokes to start a session. The CLI opens the target URL in Chrome with a session id and auth token embedded in the URL hash fragment, the extension detects the handoff, binds the session to that tab, and records as normal. When the user stops the session, the extension POSTs the export zip to the CLI's local HTTP listener (127.0.0.1 only, per-session token) instead of (or in addition to) triggering a browser download. The CLI stores the session under a known path and exits with a JSON summary on stdout (`{session_id, path, events, screenshots, duration_s}`) so Claude Code (or any shell caller) can parse the result and read the files directly.
+
+  Breaks into two phases that can ship independently:
+
+  **1. Local handoff receiver.** A `deskcheck listen --out DIR` process exposes an HTTP endpoint on 127.0.0.1 that accepts token-authorised session uploads. The extension gains an "export to local listener" code path alongside the existing download: if a listener is reachable and the session carries a matching token, POST the zip; otherwise fall back to the download path. With only phase 1 shipped, the developer runs `deskcheck listen` in one terminal, starts a session in the side panel as normal, and the zip lands under `DIR/<session-id>/` instead of Downloads. Phase 1 alone already removes most of the friction the feature exists to fix.
+
+  **2. Terminal-launched sessions.** A `deskcheck record <url>` command starts the listener, launches Chrome against the target URL with the session marker in the hash fragment (`#_deskcheck=ID:TOKEN:PORT`), and blocks until a matching session arrives or the timeout fires. The extension's content script detects the marker, strips it from the visible URL, and passes the session id/token to the service worker, which opens the side panel bound to that tab and pre-configures the session with the supplied id/token/listener URL. The side panel shows a visible badge naming the connected terminal session so the user knows their interactions are wired to ship somewhere on Stop. Discard cancels the pending handoff cleanly and the CLI returns a "cancelled" response. Chrome launch defaults to the user's existing profile; an optional `--profile isolated` mode spins a dedicated `--user-data-dir` with `--load-extension=dist/` so the flow works on a clean machine.
+- **Dependencies**: None strict — independent of other roadmap items. Benefits from feature #5 (incremental OPFS persistence) because larger sessions can flow end-to-end without running into memory limits, and from feature #13 (standalone dogfooding mode) for local development of the listener protocol.
+- **Constraints**:
+  - **Security by default.** The local HTTP listener must bind 127.0.0.1 only (verified by test). Every session carries a cryptographically random token that must be presented on upload. Tokens are single-use and expire when the session ends or the CLI process exits. Unauthorised uploads are rejected.
+  - **Opt-in handoff.** The extension must never POST to a local listener without an explicit session-id marker. Manual sessions started from the side panel continue to download as today with no behaviour change.
+  - **Reuse the existing export path.** The listener receives the exact same zip a download would produce, byte-for-byte. Schema version is unchanged — this is a transport change, not a schema change.
+  - **Clear user feedback.** The side panel shows a "Connected to terminal session <id>" badge whenever a session is wired to a listener, so Stop does not silently ship data the user did not realise was being handed off.
+  - **macOS-first.** Project targets macOS for local development (per CLAUDE.md). The Chrome-launch path is macOS-native for this feature; Linux/Windows are noted as future work in docs.
+  - **MCP wrapper deferred, not in scope.** Claude Code already runs shell commands — `deskcheck record <url> --json` plus a `Read` of the returned path is a complete integration with no protocol adapter. A thin MCP server that shells out to the same CLI is a 30-minute follow-up *if* the CLI ergonomics turn out to be insufficient in practice. Explicitly out of scope for this feature so the first version stays simple, testable, and composable with any shell-based agent or CI pipeline.
+- **Definition of done**:
+  - **Phase 1 — local handoff receiver:**
+    - [ ] A `deskcheck` CLI ships in the repo (language TBD — Node to share types with the extension, or a single Go binary for zero-install distribution)
+    - [ ] `deskcheck listen --out DIR` starts a local HTTP server on 127.0.0.1, prints the bound port and a human-readable ready line, and writes received zips under `DIR/<session-id>/`
+    - [ ] The extension background worker POSTs a finished session zip to a local listener when session metadata carries a listener URL + token
+    - [ ] The listener validates the per-session token and rejects uploads that do not match
+    - [ ] The listener is verified to bind 127.0.0.1 only — attempts to connect from a non-loopback interface fail
+    - [ ] Manual (non-CLI) sessions continue to download via the existing path with no behaviour change
+    - [ ] Integration test: a headless-Chrome session POSTs to a test listener and the resulting zip matches a reference download byte-for-byte
+  - **Phase 2 — terminal-launched sessions:**
+    - [ ] `deskcheck record <url> [--timeout S] [--profile existing|isolated] [--json]` starts a listener, launches Chrome against the URL with the session marker in the hash, and blocks until a matching session arrives or the timeout fires
+    - [ ] On success the CLI prints a JSON summary to stdout: `{session_id, path, events, screenshots, duration_s}` and exits 0; on timeout or cancellation it exits non-zero with a structured error
+    - [ ] The extension content script detects the `#_deskcheck=ID:TOKEN:PORT` marker on page load, strips it from the visible URL, and passes it to the service worker
+    - [ ] The service worker opens the side panel bound to that tab and pre-populates the session config with the supplied id, token, and listener URL
+    - [ ] The side panel shows a visible "Connected to terminal session <id>" badge whenever a handoff is wired
+    - [ ] Pause / Resume / Stop / Discard behave exactly as today; Discard cancels the pending handoff and the CLI receives a cancelled response
+    - [ ] `--profile isolated` spins a dedicated `--user-data-dir` with `--load-extension=dist/` so the flow works on a clean machine without a pre-installed extension
+    - [ ] macOS-native Chrome launch path works end-to-end; Linux/Windows are noted as future work in docs
+  - **Cross-cutting:**
+    - [ ] Unit tests cover token generation, uniqueness, expiry, and rejection of mismatched tokens
+    - [ ] The first-run notice and `PRIVACY.md` are updated to mention CLI handoff and the 127.0.0.1-only guarantee
+    - [ ] Export schema (`schema_version`) is unchanged — the listener receives the same zip structure as a download
+    - [ ] README includes a short end-to-end walkthrough: run `deskcheck record https://example.com`, record a bug in the launched tab, see the session land at the printed path, read `session.json` directly
+
 ---
 
 ## Priority: Next
@@ -287,6 +330,7 @@ graph LR
     11 --> 12[12. Control layout refinement]
     12 --> 13[13. Standalone dogfooding mode]
     9[9. Active tab group]
+    14[14. CLI integration]
 ```
 
 - Feature #5 (Incremental persistence) benefits from #1 (Session size indicator) shipping first — users can see the improvement, and the indicator's calculation needs to be compatible with both storage backends.
@@ -295,4 +339,5 @@ graph LR
 - Feature #12 (Control layout refinement) depends on #11 — it reshuffles the controls that #11 introduced (lifecycle top bar, embedded picker, icon buttons, screenshot removal).
 - Feature #13 (Standalone dogfooding mode) depends on #12 — the standalone page should reflect the final control layout. #12 is complete, so #13 is unblocked.
 - Features #8 (Side panel UX) and #9 (Active tab group) are complementary "active session visibility" cues but can ship independently.
+- Feature #14 (CLI integration) has no strict dependencies. It benefits from #5 (OPFS) once larger sessions can flow end-to-end without memory limits, and from #13 (standalone dogfooding) which gives a convenient local target for iterating on the listener protocol — but neither is a blocker.
 - All other features are independent.
