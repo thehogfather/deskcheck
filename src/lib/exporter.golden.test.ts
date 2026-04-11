@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { unzipSync, strFromU8 } from "fflate";
 import { exportSessionStreaming } from "./exporter";
 import { FakeSessionStore } from "./fake-session-store";
+import { SCHEMA_VERSION } from "./agents-doc";
 import goldenSession from "./__fixtures__/golden-session.json";
 import type {
   SessionMetadata,
@@ -68,6 +69,43 @@ describe("exportSessionStreaming — golden-file schema regression", () => {
     const canonicalActual = JSON.stringify(parsed, null, 2);
     const canonicalExpected = JSON.stringify(goldenSession, null, 2);
     expect(canonicalActual).toBe(canonicalExpected);
+  });
+
+  // D10 — Feature #14 phase 1: schema_version is unchanged by the
+  // transport change. The handoff transport is a runtime branch, not a
+  // data schema change; this test pins the constant so a silent bump
+  // is impossible to miss. Also asserts that the exported session.json
+  // never contains any handoff-related keys — structural proof that the
+  // handoff config (which lives in its own chrome.storage.local key,
+  // NOT in SessionMetadata) cannot leak into exported session data.
+  it("D10 — schema_version is 1.2.0 and exported zip contains no handoff/listener/token fields", async () => {
+    expect(SCHEMA_VERSION).toBe("1.2.0");
+
+    const store = new FakeSessionStore();
+    const meta: SessionMetadata = {
+      id: "d10-no-leak",
+      tab_id: 1,
+      start_time: "2026-04-11T22:00:00.000Z",
+      end_time: "2026-04-11T22:01:00.000Z",
+      duration_ms: 60000,
+      initial_url: "https://example.com",
+      user_agent: "Test",
+      viewport: { width: 100, height: 100 },
+      pii_mode: "full",
+      status: "stopped",
+    };
+    await store.createSession(meta);
+
+    const zipBytes = await exportSessionStreaming(store, meta);
+    const unzipped = unzipSync(zipBytes);
+    const sessionJson = strFromU8(unzipped["session.json"]);
+    expect(sessionJson).toContain('"schema_version": "1.2.0"');
+    // Structural leak-absence pin: these keys must never surface in
+    // the exported session.json for a handoff-configured session.
+    expect(sessionJson).not.toContain("listener_url");
+    expect(sessionJson).not.toContain("deskcheck_handoff");
+    expect(sessionJson).not.toMatch(/"token"/);
+    expect(sessionJson).not.toContain("handoff");
   });
 
   it("strips tab_id from the exported session (defence against regression)", async () => {

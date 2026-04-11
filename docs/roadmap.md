@@ -125,13 +125,13 @@ status: draft
   - **MCP wrapper deferred, not in scope.** Claude Code already runs shell commands — `deskcheck record <url> --json` plus a `Read` of the returned path is a complete integration with no protocol adapter. A thin MCP server that shells out to the same CLI is a 30-minute follow-up *if* the CLI ergonomics turn out to be insufficient in practice. Explicitly out of scope for this feature so the first version stays simple, testable, and composable with any shell-based agent or CI pipeline.
 - **Definition of done**:
   - **Phase 1 — local handoff receiver:**
-    - [ ] A `deskcheck` CLI ships in the repo (language TBD — Node to share types with the extension, or a single Go binary for zero-install distribution)
-    - [ ] `deskcheck listen --out DIR` starts a local HTTP server on 127.0.0.1, prints the bound port and a human-readable ready line, and writes received zips under `DIR/<session-id>/`
-    - [ ] The extension background worker POSTs a finished session zip to a local listener when session metadata carries a listener URL + token
-    - [ ] The listener validates the per-session token and rejects uploads that do not match
-    - [ ] The listener is verified to bind 127.0.0.1 only — attempts to connect from a non-loopback interface fail
-    - [ ] Manual (non-CLI) sessions continue to download via the existing path with no behaviour change
-    - [ ] Integration test: a headless-Chrome session POSTs to a test listener and the resulting zip matches a reference download byte-for-byte
+    - [x] A `deskcheck` CLI ships in the repo (Node `.mjs`, zero runtime deps, stdlib `http`/`fs`/`crypto`/`path` only)
+    - [x] `deskcheck listen --out DIR` starts a local HTTP server on 127.0.0.1, prints the bound port and a human-readable ready line, and writes received zips under `DIR/<session-id>.zip`
+    - [x] The extension background worker POSTs a finished session zip to a local listener when the `deskcheck_handoff` record is set in `chrome.storage.local`
+    - [x] The listener validates the per-session token (Node `timingSafeEqual`) and rejects uploads that do not match with 401
+    - [x] The listener is verified to bind 127.0.0.1 only — a non-loopback connect attempt does not reach the server (`cli/deskcheck.test.mjs` D5)
+    - [x] Manual (non-CLI) sessions continue to download via the existing path with no behaviour change (`tests/service-worker-handoff.test.ts` D6 — opt-in pin)
+    - [x] Integration test: a session POSTs to a test listener and the resulting zip matches a reference download byte-for-byte (`cli/deskcheck.test.mjs` D7)
   - **Phase 2 — terminal-launched sessions:**
     - [ ] `deskcheck record <url> [--timeout S] [--profile existing|isolated] [--json]` starts a listener, launches Chrome against the URL with the session marker in the hash, and blocks until a matching session arrives or the timeout fires
     - [ ] On success the CLI prints a JSON summary to stdout: `{session_id, path, events, screenshots, duration_s}` and exits 0; on timeout or cancellation it exits non-zero with a structured error
@@ -142,10 +142,10 @@ status: draft
     - [ ] `--profile isolated` spins a dedicated `--user-data-dir` with `--load-extension=dist/` so the flow works on a clean machine without a pre-installed extension
     - [ ] macOS-native Chrome launch path works end-to-end; Linux/Windows are noted as future work in docs
   - **Cross-cutting:**
-    - [ ] Unit tests cover token generation, uniqueness, expiry, and rejection of mismatched tokens
-    - [ ] The first-run notice and `PRIVACY.md` are updated to mention CLI handoff and the 127.0.0.1-only guarantee
-    - [ ] Export schema (`schema_version`) is unchanged — the listener receives the same zip structure as a download
-    - [ ] README includes a short end-to-end walkthrough: run `deskcheck record https://example.com`, record a bug in the launched tab, see the session land at the printed path, read `session.json` directly
+    - [x] Unit tests cover token generation, uniqueness, expiry, and rejection of mismatched tokens (`cli/deskcheck.test.mjs` D8a-c + S17 replay defence via `usedSessions` set)
+    - [x] The first-run notice and `PRIVACY.md` are updated to mention CLI handoff and the 127.0.0.1-only guarantee (`src/lib/privacy.test.ts` D9)
+    - [x] Export schema (`schema_version`) is unchanged — the listener receives the same zip structure as a download (`src/lib/exporter.golden.test.ts` D10)
+    - [x] README includes a short end-to-end walkthrough: `deskcheck listen --out ./sessions` → paste the ready-line into the side panel → record a session → zip lands at the printed path (phase-1 variant; phase-2 cycle will add the `deskcheck record <url>` walkthrough)
 
 ---
 

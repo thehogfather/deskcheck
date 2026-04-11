@@ -20,6 +20,11 @@ describe("buildControlsModel — pre-session states (idle & stopped)", () => {
       expect(m.discard).toBe(false);
     });
 
+    it(`shows attachCliListener in ${status}`, () => {
+      const m = buildControlsModel({ status, hasResidualState: false });
+      expect(m.attachCliListener).toBe(true);
+    });
+
     it(`shows empty-state hint in ${status} with no residual state`, () => {
       const m = buildControlsModel({ status, hasResidualState: false });
       expect(m.emptyStateHint).toBe(true);
@@ -50,6 +55,11 @@ describe("buildControlsModel — in-flight states (running & paused)", () => {
       expect(m.pause).toBe(true);
       expect(m.stop).toBe(true);
       expect(m.discard).toBe(true);
+    });
+
+    it(`hides attachCliListener in ${status} (cannot retarget mid-session)`, () => {
+      const m = buildControlsModel({ status, hasResidualState: false });
+      expect(m.attachCliListener).toBe(false);
     });
 
     it(`hides reset in ${status} regardless of residual state`, () => {

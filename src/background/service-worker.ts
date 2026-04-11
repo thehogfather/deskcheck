@@ -16,6 +16,9 @@ import {
   dataUrlToPngBytes,
 } from "./screenshot";
 import { nextStatus, type SessionStatus } from "../lib/session-status";
+import { getHandoffConfig } from "../lib/handoff-store";
+import { isValidLoopbackUrl, redactToken } from "../lib/handoff";
+import { performHandoff } from "./handoff-post";
 
 const debuggerClient = new DebuggerClient();
 // One SessionStore instance owns all persistence for the worker. Its
@@ -660,25 +663,71 @@ async function handleMessage(
       if (!session) return { error: "No session" };
       const zipBytes = await exportSessionStreaming(store, session);
       const filename = getExportFilename(session);
-      // MV3 service workers in Chrome do NOT expose
-      // `URL.createObjectURL` (as of Chrome 147 — confirmed
-      // empirically). A Blob URL approach would save one encode pass
-      // but is currently non-functional in this runtime. Until Chrome
-      // ships URL.createObjectURL in SW, we fall back to a data URL
-      // built via a chunked base64 encode. The streaming zip writer
-      // still caps memory during the recording session (one screenshot
-      // in flight at a time); this only re-encodes the finished zip
-      // at download time, which is a bounded one-shot cost.
-      const dataUrl = `data:application/zip;base64,${bytesToBase64(zipBytes)}`;
-      await chrome.downloads.download({ url: dataUrl, filename, saveAs: true });
-      // Clear the session after the download call returns. Chrome's
-      // downloads process keeps the data URL alive on its own side
-      // until the download completes, so there is no URL lifetime
-      // concern like there would be with a blob URL.
-      await store.deleteSession();
-      broadcastToPanels({ type: "SESSION_CLEARED" });
-      currentStatus = "idle";
-      activeSessionId = null;
+
+      // Feature #14 phase 1: opt-in CLI handoff. Absence of the
+      // `deskcheck_handoff` storage key is the kill switch — the
+      // download path below is unchanged when no handoff is configured.
+      // Any non-ok handoff result falls through to the download path
+      // with a visible warning so the user knows the zip did not land
+      // at the listener.
+      let transportSucceeded = false;
+      const handoff = await getHandoffConfig();
+      if (handoff && isValidLoopbackUrl(handoff.listener_url)) {
+        const result = await performHandoff(handoff, zipBytes, session.id, fetch);
+        if (result.kind === "ok") {
+          transportSucceeded = true;
+        } else {
+          const reason =
+            result.kind === "rejected"
+              ? `listener returned ${result.status}`
+              : redactToken(result.reason);
+          console.warn("[DeskCheck] handoff failed:", reason);
+          broadcastToPanels({
+            type: "EXPORT_WARNING",
+            message: "Listener unreachable, saved to Downloads instead.",
+          });
+        }
+      }
+
+      if (!transportSucceeded) {
+        // MV3 service workers in Chrome do NOT expose
+        // `URL.createObjectURL` (as of Chrome 147 — confirmed
+        // empirically). A Blob URL approach would save one encode pass
+        // but is currently non-functional in this runtime. Until Chrome
+        // ships URL.createObjectURL in SW, we fall back to a data URL
+        // built via a chunked base64 encode. The streaming zip writer
+        // still caps memory during the recording session (one screenshot
+        // in flight at a time); this only re-encodes the finished zip
+        // at download time, which is a bounded one-shot cost.
+        try {
+          const dataUrl = `data:application/zip;base64,${bytesToBase64(zipBytes)}`;
+          await chrome.downloads.download({ url: dataUrl, filename, saveAs: true });
+          transportSucceeded = true;
+        } catch (e) {
+          // Both transports failed. Surface a warning and DO NOT delete
+          // the OPFS session — the user can try again.
+          console.warn("[DeskCheck] download fallback failed:", e);
+          broadcastToPanels({
+            type: "EXPORT_WARNING",
+            message: "Export failed. Session retained — try again.",
+          });
+        }
+      }
+
+      // Only clean up OPFS if at least one transport succeeded. This is
+      // a behaviour change from the pre-feature-14 code, which cleaned
+      // up unconditionally and assumed chrome.downloads.download could
+      // not fail. The new invariant is:
+      //
+      //   session_cleared ⇒ at_least_one_transport_succeeded
+      //
+      // pinned by matrix row S12 in tests/service-worker-handoff.test.ts.
+      if (transportSucceeded) {
+        await store.deleteSession();
+        broadcastToPanels({ type: "SESSION_CLEARED" });
+        currentStatus = "idle";
+        activeSessionId = null;
+      }
       return { filename };
     }
   }

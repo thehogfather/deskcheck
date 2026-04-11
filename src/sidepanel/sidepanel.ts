@@ -39,6 +39,12 @@ import {
 } from "../lib/sidepanel-storage";
 import { buildFirstRunNoticeModel } from "../lib/privacy-notice";
 import { parsePiiMode, DEFAULT_PII_MODE } from "../lib/pii-modes";
+import { isValidLoopbackUrl } from "../lib/handoff";
+import {
+  getHandoffConfig,
+  setHandoffConfig,
+  clearHandoffConfig,
+} from "../lib/handoff-store";
 import {
   formatDuration,
   formatBytes,
@@ -237,6 +243,108 @@ export async function mountSidePanel(
     );
     selectedPiiMode = parsePiiMode(checked?.value);
   });
+
+  // ─── Feature-14: "Attach CLI listener" paste affordance ──────────
+  // Parses a single-line paste from the CLI's ready-line stdout:
+  //     http://127.0.0.1:54329 <64-hex token>
+  // Validates the URL via isValidLoopbackUrl (strict loopback only),
+  // stores the record via setHandoffConfig, and swaps the row into
+  // an attached state showing the URL + a Detach button. The token
+  // is NEVER rendered back into the DOM — see grep test
+  // tests/sidepanel-no-handoff-write.test.ts.
+  let handoffAttachedUrl: string | null = null;
+  const handoffRow = el("div", { id: "handoff-row", class: "handoff-row" });
+  const handoffHint = el("label", { class: "handoff-hint", for: "handoff-input" }, [
+    "Attach CLI listener (optional) — ",
+    el("span", { class: "handoff-hint-detail" }, ["paste the line from `deskcheck listen`"]),
+  ]);
+  const handoffInput = el("input", {
+    id: "handoff-input",
+    type: "text",
+    placeholder: "http://127.0.0.1:54329 <token>",
+    autocomplete: "off",
+    spellcheck: "false",
+  }) as HTMLInputElement;
+  const handoffAttachBtn = iconBtn("handoff-attach-btn", "sp-btn", "\u21B5", "Attach");
+  const handoffAttachedLabel = el("span", { id: "handoff-attached-label", class: "handoff-attached-label" });
+  const handoffDetachBtn = iconBtn("handoff-detach-btn", "sp-btn", "\u2715", "Detach");
+  const handoffInputRow = el("div", { class: "handoff-input-row" });
+  handoffInputRow.appendChild(handoffInput);
+  handoffInputRow.appendChild(handoffAttachBtn);
+  const handoffAttachedRow = el("div", { class: "handoff-attached-row" });
+  handoffAttachedRow.appendChild(handoffAttachedLabel);
+  handoffAttachedRow.appendChild(handoffDetachBtn);
+
+  function renderHandoffState(): void {
+    clearChildren(handoffRow);
+    handoffRow.appendChild(handoffHint);
+    if (handoffAttachedUrl) {
+      handoffAttachedLabel.textContent = `Attached: ${handoffAttachedUrl}`;
+      handoffRow.appendChild(handoffAttachedRow);
+    } else {
+      handoffInput.value = "";
+      handoffRow.appendChild(handoffInputRow);
+    }
+  }
+
+  handoffAttachBtn.addEventListener("click", async () => {
+    const raw = handoffInput.value.trim();
+    if (raw.length === 0) {
+      asyncErrorLine.textContent = "Paste the URL + token line from `deskcheck listen` first.";
+      return;
+    }
+    // Expected shape: "<URL> <token>". Tokens are hex so we split on
+    // whitespace rather than trying to anchor by length — the URL
+    // validator catches any malformed inputs.
+    const parts = raw.split(/\s+/);
+    if (parts.length !== 2) {
+      asyncErrorLine.textContent = "Expected `<listener-url> <token>` on one line.";
+      return;
+    }
+    const [urlPart, tokenPart] = parts;
+    if (!isValidLoopbackUrl(urlPart)) {
+      asyncErrorLine.textContent = "Listener URL must be a loopback URL (http://127.0.0.1:PORT).";
+      return;
+    }
+    if (tokenPart.length < 16) {
+      asyncErrorLine.textContent = "Token looks too short — copy the full line from the CLI output.";
+      return;
+    }
+    try {
+      await setHandoffConfig({
+        listener_url: urlPart,
+        token: tokenPart,
+        created_at: new Date().toISOString(),
+      });
+      handoffAttachedUrl = urlPart;
+      renderHandoffState();
+      asyncErrorLine.textContent = "";
+    } catch (e) {
+      asyncErrorLine.textContent = `Failed to save listener: ${String(e)}`;
+    }
+  });
+
+  handoffDetachBtn.addEventListener("click", async () => {
+    try {
+      await clearHandoffConfig();
+      handoffAttachedUrl = null;
+      renderHandoffState();
+      asyncErrorLine.textContent = "";
+    } catch (e) {
+      asyncErrorLine.textContent = `Failed to clear listener: ${String(e)}`;
+    }
+  });
+
+  // Load initial state from storage.
+  try {
+    const existing = await getHandoffConfig();
+    if (existing) {
+      handoffAttachedUrl = existing.listener_url;
+    }
+  } catch {
+    // Storage read failure → treat as "not attached"; the user can re-attach.
+  }
+  renderHandoffState();
 
   /** Build a button with `<span class="btn-icon">icon</span><span class="btn-label">text</span>`. */
   function iconBtn(id: string, cls: string, icon: string, label: string): HTMLButtonElement {
@@ -464,6 +572,15 @@ export async function mountSidePanel(
       // Backfill any already-rendered annotation rows that referenced
       // this screenshot id before the bytes arrived.
       hydrateThumbsForScreenshot(msg.id, msg.dataUrl);
+      return;
+    }
+    if (msg.type === "EXPORT_WARNING") {
+      // Feature-14 phase 1: the service worker falls through to the
+      // download path when the CLI handoff fails. Surface the one-line
+      // reason in the existing async-error slot so the user is not
+      // confused when the zip lands in Downloads instead of at the
+      // attached listener.
+      asyncErrorLine.textContent = msg.message;
       return;
     }
   };
@@ -859,6 +976,9 @@ export async function mountSidePanel(
 
     // Always: PII fieldset.
     if (model.piiMode) controls.appendChild(piiFieldset);
+
+    // Feature-14: CLI handoff paste affordance — pre-session only.
+    if (model.attachCliListener) controls.appendChild(handoffRow);
 
     // Annotation wrapper with embedded picker — only during active session.
     if (model.annotation) {

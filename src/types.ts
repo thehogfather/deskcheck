@@ -208,6 +208,13 @@ export type Message =
   // sidepanel-events-source.ts subscribes via chrome.runtime.onMessage.
   | { type: "EVENT_APPENDED"; event: TimelineEvent }
   | { type: "SCREENSHOT_APPENDED"; id: string; dataUrl: string }
-  | { type: "SESSION_CLEARED" };
+  | { type: "SESSION_CLEARED" }
+  // Feature #14 phase 1: the service worker broadcasts this when the CLI
+  // handoff path fell through (listener unreachable, rejected, or the
+  // final download fallback also failed). The side panel renders the
+  // message in the existing #async-error slot so the user knows the
+  // export did not land at the listener even though the Stop click
+  // appeared to succeed.
+  | { type: "EXPORT_WARNING"; message: string };
 
 export type { PiiCaptureMode, InputMetadata } from "./lib/pii-modes";

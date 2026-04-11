@@ -1,44 +1,46 @@
-# Current task: Feature #9 — Automatic tab group for active DeskCheck tabs
+# Current task: Feature #14 — CLI integration (Phase 1)
 
-- **Feature ID**: feature-9
-- **Title**: Automatic tab group for active DeskCheck tabs
-- **Priority**: Later (claimed for active work)
-- **Persona**: Bug Reporter
-- **Effort**: Small
-- **Branch**: feature/feature-9
-- **Session**: orch-20260408-222003-4289
-- **Worktree**: .claude/worktrees/feature-9
-- **Started**: 2026-04-08
+- **Feature ID**: feature-14
+- **Title**: CLI integration: terminal-launched sessions with automatic handoff
+- **Roadmap entry**: `docs/roadmap.md` → Priority: Now → #14
+- **Cycle scope**: **Phase 1 only** — local handoff receiver (`deskcheck listen`). Phase 2 (terminal-launched sessions) is a separate orchestration cycle.
+- **Priority**: Now (claimed for active work)
+- **Persona**: Bug Reporter (primary), AI Consumer (secondary)
+- **Effort**: Medium (phase 1 in isolation; ~3–5 days of focused work)
+- **Branch**: `worktree-feature+feature-14`
+- **Worktree**: `.claude/worktrees/feature+feature-14`
+- **Started**: 2026-04-11
+- **Orchestrator cycle**: three-plan competition with autonomous implementation through PR creation
 
-## Goal
+## Phase status
 
-Give users immediate visual feedback about which tab DeskCheck is actively recording, preventing confusion when many tabs are open.
+- [x] Phase 0: initialize workspace + worktree
+- [ ] Phase 1: generate 3 competing plans (speed / quality / safety)
+- [ ] Phase 2: judge selects plan + generates Test Level Matrix
+- [ ] Phase 3: generate acceptance tests (failing)
+- [ ] Phase 4: implement until acceptance tests pass
+- [ ] Phase 5: automated validation gate
+- [ ] Phase 6: architecture + roadmap update + PR
 
-## Description
+## Brief
 
-When a recording session starts on a tab, automatically add that tab to a dedicated "DeskCheck" tab group via the `chrome.tabGroups` API — distinctive color and label so the user can see at a glance which tabs are under recording. When the session ends (or the tab is closed), remove the tab from the group; clean up the group if it becomes empty. If the group already exists in the current window, reuse it rather than creating a new one.
+Full planner brief at `.orchestrator/plans/feature-14/brief.md`. That document is the contract the three planners and the judge read — it defines phase-1 scope, binding constraints, DoD subset, and the key decisions each planner must justify.
 
-## Definition of Done (from docs/roadmap.md)
+## Goal (one paragraph)
 
-- [ ] `tabGroups` permission is added to `manifest.json`
-- [ ] Starting a session adds the active tab to a "DeskCheck" tab group in the current window
-- [ ] Tab group has a distinctive color and a clear label (e.g., "DeskCheck")
-- [ ] If a "DeskCheck" group already exists in the window, the tab is added to it rather than creating a new one
-- [ ] Ending a session removes the tab from the group
-- [ ] If the group becomes empty after a session ends, the group is cleaned up
-- [ ] Closing a recorded tab while a session is active does not leave orphaned group state
-- [ ] Tab group behaviour is unit/integration-tested where possible (`chrome.tabGroups` API mocked)
+Let a developer run `deskcheck listen` in one terminal, record a DeskCheck session normally in the side panel, and have the resulting export land at a known on-disk path the terminal (or a shell caller like Claude Code) can read directly — eliminating the current "stop, download, find the zip in Downloads, drag into context" friction. Phase 1 achieves this with a local HTTP listener and an opt-in export branch in the service worker. Phase 2 will layer terminal-launched sessions (`deskcheck record <url>`) on top in a subsequent cycle.
 
-## Constraints
+## Binding constraints for this cycle
 
-- Manifest V3 Chrome extension; vanilla TypeScript, no framework
-- Vitest-only unit tests (no real Chrome); all `chrome.tabs.group`, `chrome.tabGroups.*` calls must go through a thin injectable seam that tests can stub
-- Must not regress the existing feature-8 bind-on-open side-panel behaviour — the SW currently has subtle sync/async ordering in `START_SESSION` and `chrome.action.onClicked`. Tab-group work must not reintroduce awaits that consume the user-gesture budget
-- Missing/erroring `chrome.tabGroups` API (older Chrome, non-Chromium fork, or permission revoked) must not crash `START_SESSION`; grouping is best-effort
-- Tab group cleanup must be idempotent: calling "remove tab from group" when the tab is already ungrouped, the group is already gone, or the tab itself is gone must not throw
+1. **Security**: listener binds `127.0.0.1` only, per-session tokens required, single-use, expire with the CLI process. Verified by test.
+2. **Opt-in**: manual sessions without a listener URL in metadata continue to download via the existing path with zero behaviour change. Verified by test.
+3. **Schema unchanged**: `schema_version` in `agents-doc.ts` stays put. This is a transport change, not a schema change.
+4. **macOS-first**: Linux/Windows are future work, not in DoD.
+5. **Phase 2 OUT OF SCOPE**: no Chrome launcher, no hash-fragment detection, no side panel badge.
 
-## Out of scope
+## Out-of-scope for this cycle
 
-- Grouping across multiple tabs (sessions are single-tab; only the recorded tab is grouped)
-- Tab-switch follow-through (feature #7)
-- Color customization UI
+- Phase 2: `deskcheck record <url>`, Chrome launcher, hash-fragment detection, side panel "connected to terminal session" badge, `--profile isolated` mode
+- MCP wrapper (explicitly deferred per the roadmap entry)
+- Linux/Windows Chrome launch paths
+- Any change to `session.json` schema or event types

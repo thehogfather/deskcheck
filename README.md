@@ -61,9 +61,44 @@ Three components, all vanilla TypeScript (no framework):
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for details and [`docs/roadmap.md`](docs/roadmap.md) for planned features.
 
+## CLI handoff (optional)
+
+Instead of stopping and dragging the downloaded zip into an AI assistant's
+context, you can attach a local CLI listener so session exports land directly
+at a known on-disk path:
+
+```sh
+# Terminal 1 — start the listener
+node cli/deskcheck.mjs listen --out ./sessions
+# prints a ready line:
+#   deskcheck listener ready
+#     url:   http://127.0.0.1:54329
+#     out:   /abs/path/sessions
+#     token: <64 hex chars>
+#
+#   Copy-paste into DeskCheck side panel → Attach CLI listener:
+#     http://127.0.0.1:54329 <64 hex chars>
+```
+
+Copy the last line, paste it into the DeskCheck side panel's **Attach CLI
+listener** row (pre-session only), and record a session as normal. When you
+click Stop, the zip POSTs directly to the listener and lands at
+`./sessions/<session-id>.zip` — no manual Download step, no drag-into-context.
+
+The handoff is **opt-in** and **local-only**: the listener binds `127.0.0.1`,
+requires a per-run bearer token, and the zip never leaves your machine. If
+the listener is unreachable at Stop time, DeskCheck falls back to the usual
+browser download and shows a warning in the side panel.
+
 ## Privacy
 
-DeskCheck is designed for **local use**. All data stays on your machine — no external network requests are made by the extension. Screenshots can capture sensitive content visible on screen, and form inputs are recorded (passwords are masked, sensitive HTTP headers like `Authorization`/`Cookie` are stripped from network errors). Review your export before sharing it.
+DeskCheck is designed for **local use**. The only network traffic DeskCheck
+can emit is an opt-in loopback POST to `http://127.0.0.1:<port>` when you
+attach a CLI listener (see above). Otherwise all data stays on your machine —
+no external network requests are made by the extension. Screenshots can
+capture sensitive content visible on screen, and form inputs are recorded
+(passwords are masked, sensitive HTTP headers like `Authorization`/`Cookie`
+are stripped from network errors). Review your export before sharing it.
 
 ## License
 

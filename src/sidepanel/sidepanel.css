@@ -608,6 +608,65 @@ html, body {
   display: none;
 }
 
+/* Feature #14 phase 1: "Attach CLI listener" paste affordance.
+ * Pre-session only — hidden mid-session by the controls visibility
+ * contract, not by display: none. */
+.handoff-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.handoff-hint {
+  font-size: 11px;
+  color: var(--muted, #8b98a9);
+}
+
+.handoff-hint-detail {
+  opacity: 0.8;
+}
+
+.handoff-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.handoff-input-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  background: var(--input-bg, #121a26);
+  color: var(--text, #e6edf5);
+  border: 1px solid var(--border, #2a3644);
+  border-radius: 4px;
+}
+
+.handoff-input-row input::placeholder {
+  color: var(--muted, #8b98a9);
+}
+
+.handoff-attached-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--success-bg, #0d2418);
+  border: 1px solid var(--success, #2e5d3a);
+  border-radius: 4px;
+}
+
+.handoff-attached-label {
+  flex: 1;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  color: var(--success-text, #8dd19e);
+  word-break: break-all;
+}
+
 /* Events list is position: relative so the chip can float at the
  * bottom. The chip uses sticky positioning so it stays visible as
  * the user scrolls. */

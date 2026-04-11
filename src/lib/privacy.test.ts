@@ -62,4 +62,21 @@ describe("PRIVACY_MD_TEMPLATE", () => {
     expect(PRIVACY_MD_TEMPLATE).toMatch(/screenshot/i);
     expect(PRIVACY_MD_TEMPLATE).toMatch(/sensitive/i);
   });
+
+  // D9 — Feature #14 phase 1: the privacy copy must be updated to
+  // reflect the new transport surface. Any earlier copy claiming
+  // "DeskCheck never transmits session data over the network" becomes
+  // false once the CLI listener path ships, so the notice has to
+  // mention the CLI handoff and the 127.0.0.1-only guarantee.
+  it("D9 — PRIVACY_MD_TEMPLATE mentions CLI handoff and 127.0.0.1 loopback-only guarantee", () => {
+    expect(PRIVACY_MD_TEMPLATE).toMatch(/cli|command[- ]line|terminal/i);
+    expect(PRIVACY_MD_TEMPLATE).toMatch(/127\.0\.0\.1|loopback|localhost/i);
+  });
+
+  it("D9 — PRIVACY_NOTICE_BULLETS mentions the CLI handoff surface (feature-14)", () => {
+    const matched = PRIVACY_NOTICE_BULLETS.some((b) =>
+      /cli|command[- ]line|terminal|listener|handoff/i.test(b),
+    );
+    expect(matched).toBe(true);
+  });
 });
