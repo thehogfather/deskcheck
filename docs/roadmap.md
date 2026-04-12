@@ -133,14 +133,14 @@ status: draft
     - [x] Manual (non-CLI) sessions continue to download via the existing path with no behaviour change (`tests/service-worker-handoff.test.ts` D6 — opt-in pin)
     - [x] Integration test: a session POSTs to a test listener and the resulting zip matches a reference download byte-for-byte (`cli/deskcheck.test.mjs` D7)
   - **Phase 2 — terminal-launched sessions:**
-    - [ ] `deskcheck record <url> [--timeout S] [--profile existing|isolated] [--json]` starts a listener, launches Chrome against the URL with the session marker in the hash, and blocks until a matching session arrives or the timeout fires
-    - [ ] On success the CLI prints a JSON summary to stdout: `{session_id, path, events, screenshots, duration_s}` and exits 0; on timeout or cancellation it exits non-zero with a structured error
-    - [ ] The extension content script detects the `#_deskcheck=ID:TOKEN:PORT` marker on page load, strips it from the visible URL, and passes it to the service worker
-    - [ ] The service worker opens the side panel bound to that tab and pre-populates the session config with the supplied id, token, and listener URL
-    - [ ] The side panel shows a visible "Connected to terminal session <id>" badge whenever a handoff is wired
-    - [ ] Pause / Resume / Stop / Discard behave exactly as today; Discard cancels the pending handoff and the CLI receives a cancelled response
-    - [ ] `--profile isolated` spins a dedicated `--user-data-dir` with `--load-extension=dist/` so the flow works on a clean machine without a pre-installed extension
-    - [ ] macOS-native Chrome launch path works end-to-end; Linux/Windows are noted as future work in docs
+    - [x] `deskcheck record <url> [--timeout S] [--profile existing|isolated] [--json]` starts a listener, launches Chrome against the URL with the session marker in the hash, and blocks until a matching session arrives or the timeout fires (`cli/deskcheck-record.mjs` + `cli/deskcheck-record.test.mjs` D1-D4)
+    - [x] On success the CLI prints a JSON summary to stdout: `{session_id, path, events, screenshots, duration_s}` and exits 0; on timeout or cancellation it exits non-zero with a structured error (`cli/deskcheck-record.test.mjs` D2-D4)
+    - [x] The extension content script detects the `#_deskcheck=ID:TOKEN:PORT:v1` marker on page load, strips it from the visible URL, and passes it to the service worker (`src/content/marker-detector.ts` + `tests/marker-detector.test.ts` D5-D7)
+    - [x] The service worker opens the side panel bound to that tab and pre-populates the session config with the supplied id, token, and listener URL (`src/background/service-worker.ts` MARKER_DETECTED handler + `tests/service-worker-pending-handoff.test.ts` D8)
+    - [x] The side panel shows a visible "Connected to terminal session <id>" badge whenever a handoff is wired (`src/sidepanel/sidepanel-handoff-badge.ts` + `tests/sidepanel-handoff-badge.test.ts` D9)
+    - [x] Pause / Resume / Stop / Discard behave exactly as today; Discard cancels the pending handoff and the CLI receives a cancelled response (`tests/service-worker-pending-handoff.test.ts` D11, `cli/deskcheck-record.test.mjs` D4)
+    - [x] `--profile isolated` spins a dedicated `--user-data-dir` with `--load-extension=dist/` so the flow works on a clean machine without a pre-installed extension (`cli/chrome-launcher.mjs` + `cli/chrome-launcher.test.mjs` D12)
+    - [x] macOS-native Chrome launch path works end-to-end; Linux/Windows are noted as future work in docs (`cli/chrome-launcher.mjs` findChrome probe chain; docs updated)
   - **Cross-cutting:**
     - [x] Unit tests cover token generation, uniqueness, expiry, and rejection of mismatched tokens (`cli/deskcheck.test.mjs` D8a-c + S17 replay defence via `usedSessions` set)
     - [x] The first-run notice and `PRIVACY.md` are updated to mention CLI handoff and the 127.0.0.1-only guarantee (`src/lib/privacy.test.ts` D9)

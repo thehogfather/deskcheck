@@ -90,6 +90,34 @@ requires a per-run bearer token, and the zip never leaves your machine. If
 the listener is unreachable at Stop time, DeskCheck falls back to the usual
 browser download and shows a warning in the side panel.
 
+### One-command flow (Phase 2)
+
+For a fully automated flow, `deskcheck record` handles everything — listener,
+Chrome launch, and session handoff — in a single command:
+
+```sh
+make build   # ensure dist/ is up to date
+node cli/deskcheck-record.mjs https://app.example.com/buggy-page --out ./sessions
+# stderr:
+#   deskcheck: listener http://127.0.0.1:54329 ready
+#   deskcheck: launched Chrome PID 41523 against https://app.example.com/buggy-page
+#   deskcheck:   click the DeskCheck toolbar action when the page loads
+#   deskcheck:   then press Start in the side panel and reproduce the bug
+```
+
+When Chrome opens, click the DeskCheck toolbar action (a blue "OPEN" badge
+appears). The side panel opens with a "Connected to terminal session" badge.
+Click Start, reproduce the bug, click Stop. The CLI exits with a JSON summary:
+
+```json
+{"session_id":"abc-1234","path":"./sessions/abc-1234.zip","events":42,"screenshots":2,"duration_s":143}
+```
+
+Options: `--timeout S` (default 600), `--profile isolated` (fresh Chrome
+with extension auto-loaded), `--json` (silent stderr), `--port N`.
+
+**macOS only** for now. Linux/Windows Chrome launch is future work.
+
 ## Privacy
 
 DeskCheck is designed for **local use**. The only network traffic DeskCheck
