@@ -17,8 +17,7 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 
 import { startListener } from "./deskcheck.mjs";
-import { findChrome, buildChromeArgs, launchChrome, waitForDebuggingPort, cdpNavigate, ChromeNotFoundError } from "./chrome-launcher.mjs";
-import { createInterface } from "node:readline";
+import { findChrome, findExtensionCapableChrome, buildChromeArgs, launchChrome, ChromeNotFoundError } from "./chrome-launcher.mjs";
 
 const SESSION_ID_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
 
@@ -118,22 +117,9 @@ async function runRecord(flags) {
 
   // Launch Chrome
   let chromeBin;
-  try {
-    chromeBin = findChrome();
-  } catch (err) {
-    if (err instanceof ChromeNotFoundError) {
-      writeResult(flags, {
-        error: "chrome_not_found",
-        message: err.message,
-        exit_code: 3,
-      });
-      process.exit(3);
-    }
-    throw err;
-  }
-
   let userDataDir = null;
   let distPath = null;
+
   if (flags.profile === "isolated") {
     distPath = resolve("dist");
     if (!existsSync(distPath)) {
@@ -145,17 +131,41 @@ async function runRecord(flags) {
       process.exit(1);
     }
     userDataDir = await mkdtemp(join(tmpdir(), "deskcheck-isolated-"));
+    // Stable Chrome blocks --load-extension; use Chrome for Testing / Chromium instead
+    try {
+      chromeBin = await findExtensionCapableChrome();
+    } catch (err) {
+      if (err instanceof ChromeNotFoundError) {
+        writeResult(flags, {
+          error: "chrome_not_found",
+          message: "No extension-capable Chrome found. Install Playwright (`npx playwright install chromium`) or set CHROME_BIN to Chrome for Testing / Chromium / Chrome Canary.",
+          exit_code: 3,
+        });
+        process.exit(3);
+      }
+      throw err;
+    }
+  } else {
+    try {
+      chromeBin = findChrome();
+    } catch (err) {
+      if (err instanceof ChromeNotFoundError) {
+        writeResult(flags, {
+          error: "chrome_not_found",
+          message: err.message,
+          exit_code: 3,
+        });
+        process.exit(3);
+      }
+      throw err;
+    }
   }
 
-  // For isolated profile: launch to chrome://extensions first, then navigate after extension loaded
-  const initialUrl = flags.profile === "isolated" ? "chrome://extensions" : targetUrl;
-  const needsDebugging = flags.profile === "isolated";
-
   const chromeArgs = buildChromeArgs({
-    url: initialUrl,
+    url: targetUrl,
     profile: flags.profile,
     userDataDir,
-    debuggingPort: needsDebugging ? 0 : undefined,
+    distPath,
   });
 
   // Skip Chrome launch if DESKCHECK_FAKE_CHROME is set (for testing)
@@ -163,43 +173,10 @@ async function runRecord(flags) {
   if (!process.env.DESKCHECK_FAKE_CHROME) {
     chromeChild = launchChrome({ chromeBin, args: chromeArgs });
 
-    if (flags.profile === "isolated") {
-      if (!flags.json) {
-        process.stderr.write(`deskcheck: launched Chrome with isolated profile\n`);
-        process.stderr.write(`deskcheck: Chrome opened chrome://extensions — please:\n`);
-        process.stderr.write(`deskcheck:   1. Enable "Developer mode" (top-right toggle)\n`);
-        process.stderr.write(`deskcheck:   2. Click "Load unpacked" and select: ${distPath}\n`);
-        process.stderr.write(`deskcheck:   3. Press Enter here when the extension is loaded\n`);
-      }
-      // Wait for user confirmation
-      if (process.stdin.isTTY) {
-        const rl = createInterface({ input: process.stdin });
-        await new Promise(resolve => rl.once("line", () => { rl.close(); resolve(); }));
-      }
-
-      // Navigate to the target URL via CDP
-      try {
-        const debugPort = await waitForDebuggingPort(userDataDir);
-        await cdpNavigate(debugPort, targetUrl);
-        if (!flags.json) {
-          process.stderr.write(`deskcheck: navigated to ${flags.url}\n`);
-        }
-      } catch (err) {
-        if (!flags.json) {
-          process.stderr.write(`deskcheck: could not auto-navigate — open ${targetUrl} manually\n`);
-        }
-      }
-
-      if (!flags.json) {
-        process.stderr.write(`deskcheck:   click the DeskCheck toolbar action when the page loads\n`);
-        process.stderr.write(`deskcheck:   then press Start in the side panel and reproduce the bug\n`);
-      }
-    } else {
-      if (!flags.json) {
-        process.stderr.write(`deskcheck: launched Chrome PID ${chromeChild.pid} against ${flags.url}\n`);
-        process.stderr.write(`deskcheck:   click the DeskCheck toolbar action when the page loads\n`);
-        process.stderr.write(`deskcheck:   then press Start in the side panel and reproduce the bug\n`);
-      }
+    if (!flags.json) {
+      process.stderr.write(`deskcheck: launched ${flags.profile === "isolated" ? "Chrome for Testing" : "Chrome"} PID ${chromeChild.pid} against ${flags.url}\n`);
+      process.stderr.write(`deskcheck:   click the DeskCheck toolbar action when the page loads\n`);
+      process.stderr.write(`deskcheck:   then press Start in the side panel and reproduce the bug\n`);
     }
   } else {
     // Fake Chrome for testing: if DESKCHECK_FAKE_CHROME_EXIT is set,
