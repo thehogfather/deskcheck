@@ -47,19 +47,20 @@ describe("buildChromeArgs", () => {
     expect(args).toEqual(["https://example.com"]);
   });
 
-  it("--profile isolated: includes user-data-dir, load-extension, password-store", () => {
+  it("--profile isolated: includes user-data-dir, password-store, no --load-extension", () => {
     const args = buildChromeArgs({
-      url: "https://example.com",
+      url: "chrome://extensions",
       profile: "isolated",
       userDataDir: "/tmp/deskcheck-xyz",
-      distPath: "/path/to/dist",
+      debuggingPort: 0,
     });
     expect(args).toContain("--user-data-dir=/tmp/deskcheck-xyz");
-    expect(args).toContain("--load-extension=/path/to/dist");
-    expect(args).toContain("--disable-extensions-except=/path/to/dist");
     expect(args).toContain("--no-first-run");
     expect(args).toContain("--no-default-browser-check");
     expect(args).toContain("--password-store=basic");
-    expect(args).toContain("https://example.com");
+    expect(args).toContain("--remote-debugging-port=0");
+    expect(args).toContain("chrome://extensions");
+    // Stable Chrome blocks --load-extension; user loads manually then we navigate via CDP
+    expect(args.some(a => a.includes("--load-extension"))).toBe(false);
   });
 });
