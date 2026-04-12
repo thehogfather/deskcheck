@@ -50,7 +50,11 @@ export function parseArgv(argv) {
   const args = argv.slice(2);
   if (args.length === 0) return { command: "usage" };
   if (args[0] === "--help" || args[0] === "-h") return { command: "help" };
-  if (args[0] !== "listen") return { command: "unknown", raw: args };
+  if (args[0] !== "listen" && args[0] !== "record") return { command: "unknown", raw: args };
+  if (args[0] === "record") {
+    // `record` is handled by cli/deskcheck-record.mjs, not here
+    return { command: "record", raw: args };
+  }
 
   const flags = { out: null, port: 0 };
   for (let i = 1; i < args.length; i++) {
@@ -167,8 +171,30 @@ async function handleRequest(req, res, ctx) {
     return;
   }
 
-  // 2. Content-Type must be application/zip
+  // 2. Content-Type dispatch: cancel sentinel or zip upload
   const contentType = req.headers["content-type"];
+
+  // Phase 2: armedSessions check (only used by `record` subcommand)
+  if (ctx.armedSessions && !ctx.armedSessions.has(sessionId)) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "unarmed_session" }));
+    return;
+  }
+
+  // Phase 2: cancel sentinel
+  if (typeof contentType === "string" && contentType.startsWith("application/x-deskcheck-cancel")) {
+    if (ctx.usedSessions.has(sessionId)) {
+      res.writeHead(409, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "duplicate_session" }));
+      return;
+    }
+    ctx.usedSessions.add(sessionId);
+    if (ctx.onSettled) ctx.onSettled({ kind: "cancelled", sessionId });
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, cancelled: true }));
+    return;
+  }
+
   if (typeof contentType !== "string" || !contentType.startsWith("application/zip")) {
     res.writeHead(415, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "unsupported_media_type" }));
@@ -291,6 +317,7 @@ async function handleRequest(req, res, ctx) {
   }
 
   ctx.usedSessions.add(sessionId);
+  if (ctx.onSettled) ctx.onSettled({ kind: "ok", sessionId, path: destPath });
   res.writeHead(201, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ ok: true, path: destPath }));
 }
