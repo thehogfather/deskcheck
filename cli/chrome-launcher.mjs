@@ -39,6 +39,7 @@ export function buildChromeArgs({ url, profile = "existing", userDataDir, distPa
   return [
     `--user-data-dir=${userDataDir}`,
     `--load-extension=${distPath}`,
+    `--disable-extensions-except=${distPath}`,
     "--no-first-run",
     "--no-default-browser-check",
     "--password-store=basic",

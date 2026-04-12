@@ -56,6 +56,7 @@ describe("buildChromeArgs", () => {
     });
     expect(args).toContain("--user-data-dir=/tmp/deskcheck-xyz");
     expect(args).toContain("--load-extension=/path/to/dist");
+    expect(args).toContain("--disable-extensions-except=/path/to/dist");
     expect(args).toContain("--no-first-run");
     expect(args).toContain("--no-default-browser-check");
     expect(args).toContain("--password-store=basic");
