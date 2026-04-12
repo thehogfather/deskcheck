@@ -537,37 +537,19 @@ async function handleMessage(
         __pendingHandoffs.delete(tabId);
         await clearPendingHandoff(tabId);
 
-        // Open the side panel UI in a popup window. sidePanel.open()
-        // requires a user gesture; chrome.windows.create() does not.
-        // The popup gets ?targetTab=<id> so it knows which tab to record.
-        const panelUrl = `chrome-extension://${chrome.runtime.id}/${SIDEPANEL_PATH}?targetTab=${tabId}`;
-        try {
-          const targetTab = await chrome.tabs.get(tabId);
-          const win = targetTab.windowId != null
-            ? await chrome.windows.get(targetTab.windowId)
-            : null;
-          const left = win ? (win.left ?? 0) + (win.width ?? 800) : 800;
-          const top = win ? (win.top ?? 0) : 0;
-          await chrome.windows.create({
-            url: panelUrl,
-            type: "popup",
-            width: 420,
-            height: 700,
-            left,
-            top,
-          });
-        } catch {
-          // Fallback: open as a regular tab if windows.create fails
-          try { await chrome.tabs.create({ url: panelUrl }); } catch { /* give up */ }
-        }
-
         broadcastToPanels({
           type: "PENDING_HANDOFF_CHANGED",
           pending: null,
           active: activeConfig,
         });
       }
-      return { armed: true };
+
+      // Return the extension ID so the CLI can open the panel tab via CDP
+      return {
+        armed: true,
+        extensionId: chrome.runtime.id,
+        panelPath: SIDEPANEL_PATH,
+      };
     }
 
     case "GET_PENDING_HANDOFF": {

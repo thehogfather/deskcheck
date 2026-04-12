@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 
 import { startListener } from "./deskcheck.mjs";
-import { findChrome, findExtensionCapableChrome, buildChromeArgs, launchChrome, ChromeNotFoundError } from "./chrome-launcher.mjs";
+import { findChrome, findExtensionCapableChrome, buildChromeArgs, launchChrome, waitForDebuggingPort, openPanelTab, ChromeNotFoundError } from "./chrome-launcher.mjs";
 
 const SESSION_ID_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
 
@@ -175,8 +175,31 @@ async function runRecord(flags) {
 
     if (!flags.json) {
       process.stderr.write(`deskcheck: launched ${flags.profile === "isolated" ? "Chrome for Testing" : "Chrome"} PID ${chromeChild.pid} against ${flags.url}\n`);
-      process.stderr.write(`deskcheck:   click the DeskCheck toolbar action when the page loads\n`);
-      process.stderr.write(`deskcheck:   then press Start in the side panel and reproduce the bug\n`);
+    }
+
+    // For isolated profiles: open the DeskCheck panel as a tab via CDP
+    // so the user sees it immediately without clicking the toolbar icon.
+    if (flags.profile === "isolated" && userDataDir) {
+      try {
+        const cdpPort = await waitForDebuggingPort(userDataDir);
+        if (cdpPort) {
+          // Wait for the extension to load and process the marker
+          await new Promise(r => setTimeout(r, 2000));
+          await openPanelTab(cdpPort);
+          if (!flags.json) {
+            process.stderr.write(`deskcheck: opened DeskCheck panel — click Start to begin recording\n`);
+          }
+        }
+      } catch {
+        // Non-fatal — user can still click the toolbar icon
+      }
+    }
+
+    if (!flags.json) {
+      if (flags.profile !== "isolated") {
+        process.stderr.write(`deskcheck:   click the DeskCheck toolbar action when the page loads\n`);
+      }
+      process.stderr.write(`deskcheck:   reproduce the bug, then click Stop in the panel\n`);
     }
   } else {
     // Fake Chrome for testing: if DESKCHECK_FAKE_CHROME_EXIT is set,

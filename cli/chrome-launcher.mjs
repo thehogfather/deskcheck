@@ -116,8 +116,54 @@ export function buildChromeArgs({ url, profile = "existing", userDataDir, distPa
     "--no-first-run",
     "--no-default-browser-check",
     "--password-store=basic",
+    "--remote-debugging-port=0",
     url,
   ];
+}
+
+/**
+ * Wait for Chrome to write DevToolsActivePort and return the port.
+ */
+export async function waitForDebuggingPort(userDataDir, timeoutMs = 10000) {
+  const portFile = join(userDataDir, "DevToolsActivePort");
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const content = await readFile(portFile, "utf8");
+      const port = parseInt(content.split("\n")[0], 10);
+      if (port > 0) return port;
+    } catch { /* not written yet */ }
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return null;
+}
+
+/**
+ * Open the DeskCheck side panel HTML as a tab in the same Chrome window
+ * as the target page. Uses CDP to find the extension ID and query the
+ * active tab's Chrome tab ID from the service worker.
+ */
+export async function openPanelTab(cdpPort) {
+  const targets = await (await fetch(`http://127.0.0.1:${cdpPort}/json`)).json();
+
+  const sw = targets.find(t =>
+    t.type === "service_worker" && t.url.includes("service-worker"),
+  );
+  if (!sw) return null;
+  const extId = sw.url.split("/")[2];
+
+  // Find the target page tab. In the isolated profile there's exactly one
+  // real page (the target URL). The CDP target's ID differs from Chrome's
+  // internal tab ID, but the page target has a direct "id" we can match.
+  // However we need Chrome's tab ID for ?targetTab. The CDP /json list
+  // doesn't include it, so we pass a sentinel and let the panel query
+  // chrome.tabs.query({url patterns}) to find the non-extension tab.
+  const panelUrl = `chrome-extension://${extId}/src/sidepanel/index.html?cliPanel=1`;
+
+  const res = await fetch(
+    `http://127.0.0.1:${cdpPort}/json/new?${encodeURIComponent(panelUrl)}`,
+  );
+  return res.ok ? extId : null;
 }
 
 export function launchChrome({
