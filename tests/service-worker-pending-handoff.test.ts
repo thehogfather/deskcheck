@@ -80,6 +80,10 @@ function installFakeChrome(initialStorage: Record<string, unknown> = {}) {
       },
       onChanged: { addListener: vi.fn() },
     },
+    windows: {
+      create: vi.fn().mockResolvedValue({ id: 100 }),
+      get: vi.fn().mockResolvedValue({ left: 0, top: 0, width: 800, height: 600 }),
+    },
     downloads: { download: vi.fn().mockResolvedValue(123) },
     scripting: { executeScript: vi.fn().mockResolvedValue(undefined) },
     debugger: {
@@ -147,31 +151,9 @@ describe("service-worker pending-handoff (Phase 2)", () => {
     port: 54329,
   };
 
-  describe("D8 — MARKER_DETECTED auto-opens panel and promotes handoff", () => {
-    it("auto-opens the side panel and promotes to deskcheck_handoff", async () => {
+  describe("D8 — MARKER_DETECTED opens popup window and promotes handoff", () => {
+    it("promotes handoff and opens popup window with side panel UI", async () => {
       const { fake, storage } = installFakeChrome();
-      const { messageHandler } = await loadServiceWorker(fake);
-
-      const result = await dispatch(messageHandler, {
-        type: "MARKER_DETECTED",
-        marker: MARKER,
-        tabId: 42,
-      });
-      await flushAsync();
-
-      // sidePanel.open should have been called
-      expect(fake.sidePanel.open).toHaveBeenCalledWith(
-        expect.objectContaining({ tabId: 42 })
-      );
-      // Handoff should have been promoted directly (no badge needed)
-      expect(storage["deskcheck_handoff"]).toBeDefined();
-      expect((result as any).autoOpened).toBe(true);
-    });
-
-    it("falls back to badge when sidePanel.open rejects", async () => {
-      const { fake } = installFakeChrome();
-      // Make sidePanel.open reject (simulates stable Chrome's gesture requirement)
-      fake.sidePanel.open.mockRejectedValue(new Error("user gesture required"));
       const { messageHandler } = await loadServiceWorker(fake);
 
       await dispatch(messageHandler, {
@@ -181,32 +163,10 @@ describe("service-worker pending-handoff (Phase 2)", () => {
       });
       await flushAsync();
 
-      expect(fake.action.setBadgeText).toHaveBeenCalledWith(
-        expect.objectContaining({ tabId: 42, text: "OPEN" })
-      );
-    });
-
-    it("onClicked with pending handoff (fallback) opens panel and promotes", async () => {
-      const { fake, storage } = installFakeChrome();
-      // First call rejects (MARKER_DETECTED auto-open), subsequent calls succeed (onClicked)
-      fake.sidePanel.open
-        .mockRejectedValueOnce(new Error("user gesture required"))
-        .mockResolvedValue(undefined);
-      const { messageHandler } = await loadServiceWorker(fake);
-
-      await dispatch(messageHandler, {
-        type: "MARKER_DETECTED",
-        marker: MARKER,
-        tabId: 42,
-      });
-      await flushAsync();
-
-      // Simulate toolbar click
-      const onClickedHandler = fake.action.onClicked.addListener.mock.calls[0][0];
-      onClickedHandler({ id: 42, url: "https://example.com" });
-      await flushAsync();
-
+      // Handoff should be promoted to deskcheck_handoff immediately
       expect(storage["deskcheck_handoff"]).toBeDefined();
+      const handoff = storage["deskcheck_handoff"] as any;
+      expect(handoff.token).toBe(MARKER.token);
     });
   });
 

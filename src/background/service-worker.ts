@@ -525,54 +525,49 @@ async function handleMessage(
       await armPendingHandoff(tabId, pending);
       __pendingHandoffs.set(tabId, pending);
 
-      // Try to auto-open the side panel. Chrome requires a user gesture
-      // for sidePanel.open(), but some builds (Chrome for Testing) may
-      // allow it from an extension message handler. If it fails, fall
-      // through to the badge cue.
-      let autoOpened = false;
       if (!isSessionInFlight()) {
-        try {
-          void enablePanelOnTab(tabId);
-          await chrome.sidePanel.open({ tabId });
-          autoOpened = true;
-          // Auto-open succeeded — promote the handoff immediately
-          const activeConfig = {
-            listener_url: pending.listener_url,
-            token: pending.token,
-            created_at: new Date().toISOString(),
-          };
-          await setHandoffConfig(activeConfig);
-          __pendingHandoffs.delete(tabId);
-          await clearPendingHandoff(tabId);
-          void scopeOtherTabsAwayFromBound(tabId);
-          broadcastToPanels({
-            type: "PENDING_HANDOFF_CHANGED",
-            pending: null,
-            active: activeConfig,
-          });
-        } catch {
-          // Expected on stable Chrome — fall through to badge
-        }
-      }
+        // Promote the handoff immediately so the panel shows
+        // "Connected" as soon as it mounts.
+        const activeConfig = {
+          listener_url: pending.listener_url,
+          token: pending.token,
+          created_at: new Date().toISOString(),
+        };
+        await setHandoffConfig(activeConfig);
+        __pendingHandoffs.delete(tabId);
+        await clearPendingHandoff(tabId);
 
-      if (!autoOpened && !isSessionInFlight()) {
-        chrome.action.setBadgeText({ tabId, text: "OPEN" });
-        chrome.action.setBadgeBackgroundColor({ tabId, color: "#2563eb" });
+        // Open the side panel UI in a popup window. sidePanel.open()
+        // requires a user gesture; chrome.windows.create() does not.
+        // The popup gets ?targetTab=<id> so it knows which tab to record.
+        const panelUrl = `chrome-extension://${chrome.runtime.id}/${SIDEPANEL_PATH}?targetTab=${tabId}`;
         try {
-          chrome.action.setTitle({
-            tabId,
-            title: "DeskCheck — terminal session waiting. Click to open.",
+          const targetTab = await chrome.tabs.get(tabId);
+          const win = targetTab.windowId != null
+            ? await chrome.windows.get(targetTab.windowId)
+            : null;
+          const left = win ? (win.left ?? 0) + (win.width ?? 800) : 800;
+          const top = win ? (win.top ?? 0) : 0;
+          await chrome.windows.create({
+            url: panelUrl,
+            type: "popup",
+            width: 420,
+            height: 700,
+            left,
+            top,
           });
         } catch {
-          // setTitle may not exist in all environments
+          // Fallback: open as a regular tab if windows.create fails
+          try { await chrome.tabs.create({ url: panelUrl }); } catch { /* give up */ }
         }
+
         broadcastToPanels({
           type: "PENDING_HANDOFF_CHANGED",
-          pending,
-          active: null,
+          pending: null,
+          active: activeConfig,
         });
       }
-      return { armed: true, autoOpened };
+      return { armed: true };
     }
 
     case "GET_PENDING_HANDOFF": {

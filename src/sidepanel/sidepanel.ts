@@ -867,6 +867,17 @@ export async function mountSidePanel(
         return undefined;
       }
     }
+    // CLI-launched popup: ?targetTab=<id> tells us which tab to record
+    try {
+      const params = new URLSearchParams(location.search);
+      const targetTabId = params.get("targetTab");
+      if (targetTabId) {
+        const tab = await chrome.tabs.get(Number(targetTabId));
+        if (tab) return tab;
+      }
+    } catch {
+      // Fall through to default query
+    }
     try {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       return tabs[0];
