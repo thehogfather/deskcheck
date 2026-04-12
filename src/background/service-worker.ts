@@ -525,7 +525,37 @@ async function handleMessage(
       await armPendingHandoff(tabId, pending);
       __pendingHandoffs.set(tabId, pending);
 
+      // Try to auto-open the side panel. Chrome requires a user gesture
+      // for sidePanel.open(), but some builds (Chrome for Testing) may
+      // allow it from an extension message handler. If it fails, fall
+      // through to the badge cue.
+      let autoOpened = false;
       if (!isSessionInFlight()) {
+        try {
+          void enablePanelOnTab(tabId);
+          await chrome.sidePanel.open({ tabId });
+          autoOpened = true;
+          // Auto-open succeeded — promote the handoff immediately
+          const activeConfig = {
+            listener_url: pending.listener_url,
+            token: pending.token,
+            created_at: new Date().toISOString(),
+          };
+          await setHandoffConfig(activeConfig);
+          __pendingHandoffs.delete(tabId);
+          await clearPendingHandoff(tabId);
+          void scopeOtherTabsAwayFromBound(tabId);
+          broadcastToPanels({
+            type: "PENDING_HANDOFF_CHANGED",
+            pending: null,
+            active: activeConfig,
+          });
+        } catch {
+          // Expected on stable Chrome — fall through to badge
+        }
+      }
+
+      if (!autoOpened && !isSessionInFlight()) {
         chrome.action.setBadgeText({ tabId, text: "OPEN" });
         chrome.action.setBadgeBackgroundColor({ tabId, color: "#2563eb" });
         try {
@@ -536,13 +566,13 @@ async function handleMessage(
         } catch {
           // setTitle may not exist in all environments
         }
+        broadcastToPanels({
+          type: "PENDING_HANDOFF_CHANGED",
+          pending,
+          active: null,
+        });
       }
-      broadcastToPanels({
-        type: "PENDING_HANDOFF_CHANGED",
-        pending,
-        active: null,
-      });
-      return { armed: true };
+      return { armed: true, autoOpened };
     }
 
     case "GET_PENDING_HANDOFF": {

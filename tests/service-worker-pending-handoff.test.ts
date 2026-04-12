@@ -147,9 +147,31 @@ describe("service-worker pending-handoff (Phase 2)", () => {
     port: 54329,
   };
 
-  describe("D8 — MARKER_DETECTED arms pending handoff + badge", () => {
-    it("arms a pending handoff and sets OPEN badge on the tab", async () => {
+  describe("D8 — MARKER_DETECTED auto-opens panel and promotes handoff", () => {
+    it("auto-opens the side panel and promotes to deskcheck_handoff", async () => {
+      const { fake, storage } = installFakeChrome();
+      const { messageHandler } = await loadServiceWorker(fake);
+
+      const result = await dispatch(messageHandler, {
+        type: "MARKER_DETECTED",
+        marker: MARKER,
+        tabId: 42,
+      });
+      await flushAsync();
+
+      // sidePanel.open should have been called
+      expect(fake.sidePanel.open).toHaveBeenCalledWith(
+        expect.objectContaining({ tabId: 42 })
+      );
+      // Handoff should have been promoted directly (no badge needed)
+      expect(storage["deskcheck_handoff"]).toBeDefined();
+      expect((result as any).autoOpened).toBe(true);
+    });
+
+    it("falls back to badge when sidePanel.open rejects", async () => {
       const { fake } = installFakeChrome();
+      // Make sidePanel.open reject (simulates stable Chrome's gesture requirement)
+      fake.sidePanel.open.mockRejectedValue(new Error("user gesture required"));
       const { messageHandler } = await loadServiceWorker(fake);
 
       await dispatch(messageHandler, {
@@ -164,11 +186,14 @@ describe("service-worker pending-handoff (Phase 2)", () => {
       );
     });
 
-    it("onClicked with pending handoff opens panel and promotes to deskcheck_handoff", async () => {
+    it("onClicked with pending handoff (fallback) opens panel and promotes", async () => {
       const { fake, storage } = installFakeChrome();
+      // First call rejects (MARKER_DETECTED auto-open), subsequent calls succeed (onClicked)
+      fake.sidePanel.open
+        .mockRejectedValueOnce(new Error("user gesture required"))
+        .mockResolvedValue(undefined);
       const { messageHandler } = await loadServiceWorker(fake);
 
-      // Arm the pending handoff
       await dispatch(messageHandler, {
         type: "MARKER_DETECTED",
         marker: MARKER,
@@ -176,16 +201,11 @@ describe("service-worker pending-handoff (Phase 2)", () => {
       });
       await flushAsync();
 
-      // Simulate toolbar click (the onClicked listener)
+      // Simulate toolbar click
       const onClickedHandler = fake.action.onClicked.addListener.mock.calls[0][0];
       onClickedHandler({ id: 42, url: "https://example.com" });
       await flushAsync();
 
-      // Panel should have been opened
-      expect(fake.sidePanel.open).toHaveBeenCalledWith(
-        expect.objectContaining({ tabId: 42 })
-      );
-      // Pending should have been promoted to deskcheck_handoff
       expect(storage["deskcheck_handoff"]).toBeDefined();
     });
   });
@@ -237,28 +257,29 @@ describe("service-worker pending-handoff (Phase 2)", () => {
   });
 
   describe("A4 — cross-tab contamination prevented", () => {
-    it("tab A's promoted handoff uses tab A's pending entry, not tab B's", async () => {
+    it("each tab's marker promotes its own handoff, not the other's", async () => {
       const { fake, storage } = installFakeChrome();
       const { messageHandler } = await loadServiceWorker(fake);
 
       const MARKER_A = { sessionId: "session-A", token: "a".repeat(64), port: 8001 };
       const MARKER_B = { sessionId: "session-B", token: "b".repeat(64), port: 8002 };
 
-      // Arm tab 42 with marker A
+      // Arm tab 42 with marker A — auto-open promotes it
       await dispatch(messageHandler, { type: "MARKER_DETECTED", marker: MARKER_A, tabId: 42 });
-      // Arm tab 99 with marker B
+      await flushAsync();
+
+      // The promoted handoff must be marker A
+      const promotedA = storage["deskcheck_handoff"] as any;
+      expect(promotedA).toBeDefined();
+      expect(promotedA.token).toBe(MARKER_A.token);
+
+      // Now arm tab 99 with marker B — auto-open promotes it, overwriting A
       await dispatch(messageHandler, { type: "MARKER_DETECTED", marker: MARKER_B, tabId: 99 });
       await flushAsync();
 
-      // Click on tab 42
-      const onClickedHandler = fake.action.onClicked.addListener.mock.calls[0][0];
-      onClickedHandler({ id: 42, url: "https://a.example.com" });
-      await flushAsync();
-
-      // The promoted handoff must be marker A, not marker B
-      const promoted = storage["deskcheck_handoff"] as any;
-      expect(promoted).toBeDefined();
-      expect(promoted.token).toBe(MARKER_A.token);
+      const promotedB = storage["deskcheck_handoff"] as any;
+      expect(promotedB).toBeDefined();
+      expect(promotedB.token).toBe(MARKER_B.token);
     });
   });
 
