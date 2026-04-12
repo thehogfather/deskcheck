@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-//
 // Acceptance tests for feature #14 phase 2 — content script marker detector.
 //
 // Pins that the marker-detector content script (at document_start):
@@ -7,46 +5,29 @@
 //   - D6 — strips the marker via history.replaceState
 //   - D7 — passes the marker to the service worker
 //
-// Uses jsdom with a stubbed chrome global.
+// Tests inject deps directly — no jsdom needed.
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { detectMarker } from "../src/content/marker-detector";
+
+function makeDeps(href: string) {
+  const sendMessage = vi.fn().mockResolvedValue(undefined);
+  const replaceState = vi.fn();
+  return { deps: { href, replaceState, sendMessage }, sendMessage, replaceState };
+}
 
 describe("marker-detector content script", () => {
-  let sendMessageMock: ReturnType<typeof vi.fn>;
-  let replaceStateSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    sendMessageMock = vi.fn().mockResolvedValue(undefined);
-    (globalThis as any).chrome = {
-      runtime: { sendMessage: sendMessageMock },
-      storage: {
-        local: {
-          get: vi.fn().mockResolvedValue({}),
-          set: vi.fn().mockResolvedValue(undefined),
-        },
-      },
-    };
-    replaceStateSpy = vi.spyOn(history, "replaceState");
-    vi.resetModules();
-  });
-
-  function setLocationHash(href: string) {
-    // jsdom location can be set via Object.defineProperty
-    Object.defineProperty(window, "location", {
-      value: new URL(href),
-      writable: true,
-      configurable: true,
-    });
-  }
-
-  it("D5: detects marker and sends MARKER_DETECTED message", async () => {
+  it("D5: detects marker and sends MARKER_DETECTED message", () => {
     const sid = "detect-test";
     const token = "d".repeat(64);
-    setLocationHash(`https://example.com/#_deskcheck=${sid}:${token}:8080:v1`);
+    const { deps, sendMessage } = makeDeps(
+      `https://example.com/#_deskcheck=${sid}:${token}:8080:v1`
+    );
 
-    await import("../src/content/marker-detector");
+    const detected = detectMarker(deps);
 
-    expect(sendMessageMock).toHaveBeenCalledWith(
+    expect(detected).toBe(true);
+    expect(sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "MARKER_DETECTED",
         marker: expect.objectContaining({
@@ -58,52 +39,60 @@ describe("marker-detector content script", () => {
     );
   });
 
-  it("D6: strips marker from visible URL via replaceState", async () => {
+  it("D6: strips marker from visible URL via replaceState", () => {
     const sid = "strip-test";
     const token = "e".repeat(64);
-    setLocationHash(`https://example.com/#_deskcheck=${sid}:${token}:9999:v1`);
+    const { deps, replaceState } = makeDeps(
+      `https://example.com/#_deskcheck=${sid}:${token}:9999:v1`
+    );
 
-    await import("../src/content/marker-detector");
+    detectMarker(deps);
 
-    expect(replaceStateSpy).toHaveBeenCalled();
-    const [, , cleanUrl] = replaceStateSpy.mock.calls[0];
-    expect(String(cleanUrl)).not.toContain("_deskcheck=");
-    expect(String(cleanUrl)).not.toContain(token);
+    expect(replaceState).toHaveBeenCalled();
+    const cleanUrl = replaceState.mock.calls[0][2];
+    expect(cleanUrl).not.toContain("_deskcheck=");
+    expect(cleanUrl).not.toContain(token);
+    expect(cleanUrl).toBe("https://example.com/");
   });
 
-  it("D7: passes marker fields to service worker", async () => {
+  it("D7: passes marker fields to service worker", () => {
     const sid = "fields-test";
     const token = "f".repeat(64);
-    setLocationHash(`https://example.com/#_deskcheck=${sid}:${token}:12345:v1`);
+    const { deps, sendMessage } = makeDeps(
+      `https://example.com/#_deskcheck=${sid}:${token}:12345:v1`
+    );
 
-    await import("../src/content/marker-detector");
+    detectMarker(deps);
 
-    const sentMsg = sendMessageMock.mock.calls[0][0];
+    const sentMsg = sendMessage.mock.calls[0][0] as any;
     expect(sentMsg.type).toBe("MARKER_DETECTED");
     expect(sentMsg.marker.sessionId).toBe(sid);
     expect(sentMsg.marker.token).toBe(token);
     expect(sentMsg.marker.port).toBe(12345);
   });
 
-  it("no-ops when no marker in hash", async () => {
-    setLocationHash("https://example.com/#/login");
+  it("no-ops when no marker in hash", () => {
+    const { deps, sendMessage, replaceState } = makeDeps(
+      "https://example.com/#/login"
+    );
 
-    await import("../src/content/marker-detector");
+    const detected = detectMarker(deps);
 
-    expect(sendMessageMock).not.toHaveBeenCalled();
-    expect(replaceStateSpy).not.toHaveBeenCalled();
+    expect(detected).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(replaceState).not.toHaveBeenCalled();
   });
 
-  it("preserves hash-router route when stripping marker", async () => {
+  it("preserves hash-router route when stripping marker", () => {
     const sid = "router-test";
     const token = "a".repeat(64);
-    setLocationHash(
+    const { deps, replaceState } = makeDeps(
       `https://app.example.com/#/login&_deskcheck=${sid}:${token}:8080:v1`
     );
 
-    await import("../src/content/marker-detector");
+    detectMarker(deps);
 
-    const [, , cleanUrl] = replaceStateSpy.mock.calls[0];
-    expect(String(cleanUrl)).toBe("https://app.example.com/#/login");
+    const cleanUrl = replaceState.mock.calls[0][2];
+    expect(cleanUrl).toBe("https://app.example.com/#/login");
   });
 });

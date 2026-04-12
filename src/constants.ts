@@ -10,6 +10,7 @@ export const STORAGE_PRIVACY_FIRST_RUN_SEEN = "deskcheck_privacy_first_run_seen"
 // worker's export path never emits localhost traffic unless this key is
 // present and its listener_url passes the loopback validator.
 export const STORAGE_HANDOFF_CONFIG = "deskcheck_handoff";
+export const STORAGE_PENDING_HANDOFFS = "deskcheck_pending_handoffs";
 
 // Side panel entry point. The manifest intentionally has NO
 // `side_panel.default_path` — a global default creates a

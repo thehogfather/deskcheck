@@ -5,10 +5,7 @@
 //   Security — token is NEVER rendered in the DOM
 
 import { describe, it, expect } from "vitest";
-import {
-  buildHandoffBadgeModel,
-  type HandoffBadgeState,
-} from "../src/sidepanel/sidepanel-handoff-badge";
+import { buildHandoffBadgeModel } from "../src/sidepanel/sidepanel-handoff-badge";
 
 describe("buildHandoffBadgeModel", () => {
   it("returns visible armed badge for a pending handoff", () => {

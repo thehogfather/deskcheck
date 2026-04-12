@@ -215,6 +215,11 @@ export type Message =
   // message in the existing #async-error slot so the user knows the
   // export did not land at the listener even though the Stop click
   // appeared to succeed.
-  | { type: "EXPORT_WARNING"; message: string };
+  | { type: "EXPORT_WARNING"; message: string }
+  // Feature #14 phase 2: marker-detector -> SW -> side panel handoff wiring
+  | { type: "MARKER_DETECTED"; marker: { sessionId: string; token: string; port: number }; tabId: number | null }
+  | { type: "GET_PENDING_HANDOFF" }
+  | { type: "CANCEL_PENDING_HANDOFF"; tabId: number }
+  | { type: "PENDING_HANDOFF_CHANGED"; pending: import("./lib/pending-handoff-store").PendingHandoffConfig | null; active: import("./lib/handoff").HandoffConfig | null };
 
 export type { PiiCaptureMode, InputMetadata } from "./lib/pii-modes";
