@@ -14,10 +14,11 @@
 // node:fs, node:crypto, node:path).
 
 import { createServer } from "node:http";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, realpathSync } from "node:fs";
 import { mkdir, rename, unlink, stat } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { resolve, join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const MAX_BODY_BYTES = 200 * 1024 * 1024; // 200 MB
 const SESSION_ID_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
@@ -351,7 +352,17 @@ export function formatReadyLine({ boundPort, outDir, token }) {
 
 // ── Entry point ───────────────────────────────────────────────────────────
 
-const invokedDirectly = process.argv[1] && process.argv[1].endsWith("deskcheck.mjs");
+// True when this module is the entry point — resolved via realpath so a
+// symlinked `deskcheck` shim installed by `npm link` is treated the same
+// as direct `node cli/deskcheck.mjs` invocation.
+const invokedDirectly = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+})();
 
 if (invokedDirectly) {
   const parsed = parseArgv(process.argv);
@@ -360,10 +371,9 @@ if (invokedDirectly) {
     process.exit(0);
   }
   if (parsed.command === "record") {
-    // Delegate to cli/deskcheck-record.mjs — its entry check detects the
-    // `deskcheck.mjs record` invocation shape and self-runs on import.
-    await import("./deskcheck-record.mjs");
-    // The record script owns process lifecycle from here (exits on completion).
+    const { runRecordCli } = await import("./deskcheck-record.mjs");
+    await runRecordCli(process.argv);
+    // runRecordCli owns process lifecycle (calls process.exit on completion).
   } else if (parsed.command !== "listen") {
     process.stderr.write(USAGE);
     process.exit(1);

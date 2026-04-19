@@ -12,7 +12,7 @@
 
 import { randomBytes } from "node:crypto";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -550,24 +550,38 @@ function startHeartbeat(flags, startTime) {
 }
 
 // ── Entry point ──
+//
+// Direct invocation: `node cli/deskcheck-record.mjs <url> …` or a
+// symlinked `deskcheck-record` shim. The listen dispatcher calls
+// `runRecordCli` explicitly — it does not rely on this entry check.
 
-const invokedDirectly = process.argv[1] && (
-  process.argv[1].endsWith("deskcheck-record.mjs") ||
-  (process.argv[1].endsWith("deskcheck.mjs") && process.argv[2] === "record")
-);
-
-if (invokedDirectly) {
-  const flags = parseRecordArgs(process.argv);
+export async function runRecordCli(argv) {
+  const flags = parseRecordArgs(argv);
   if (!flags) {
     process.stderr.write(
       "Usage: deskcheck record <url> [--timeout S] [--profile existing|isolated] [--json] [--port N] [--out DIR]\n",
     );
     process.exit(2);
   }
-  runRecord(flags).catch((err) => {
+  try {
+    await runRecord(flags);
+  } catch (err) {
     process.stderr.write(`deskcheck: fatal: ${err instanceof Error ? err.message : err}\n`);
     process.exit(1);
-  });
+  }
+}
+
+const invokedDirectly = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
+  runRecordCli(process.argv);
 }
 
 export { parseRecordArgs, runRecord };
