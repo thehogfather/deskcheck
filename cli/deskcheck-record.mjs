@@ -14,10 +14,17 @@ import { randomBytes } from "node:crypto";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { startListener } from "./deskcheck.mjs";
 import { findChrome, findExtensionCapableChrome, buildChromeArgs, launchChrome, waitForDebuggingPort, openPanelTab, ChromeNotFoundError } from "./chrome-launcher.mjs";
+
+// Resolve the extension dist relative to this script (works when invoked
+// from any cwd, via npm-linked bin, or direct node). DESKCHECK_EXT_PATH
+// overrides for dev setups that want to point at a checkout.
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_DIST_PATH = resolve(SCRIPT_DIR, "..", "dist");
 
 const SESSION_ID_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
 
@@ -121,11 +128,13 @@ async function runRecord(flags) {
   let distPath = null;
 
   if (flags.profile === "isolated") {
-    distPath = resolve("dist");
+    distPath = process.env.DESKCHECK_EXT_PATH
+      ? resolve(process.env.DESKCHECK_EXT_PATH)
+      : DEFAULT_DIST_PATH;
     if (!existsSync(distPath)) {
       writeResult(flags, {
         error: "dist_not_found",
-        message: "Run `make build` first — dist/ directory not found.",
+        message: `Extension build not found at ${distPath}. Run \`make build\` in the deskcheck repo, or set DESKCHECK_EXT_PATH to an existing dist/.`,
         exit_code: 1,
       });
       process.exit(1);

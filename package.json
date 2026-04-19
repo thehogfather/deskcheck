@@ -4,6 +4,9 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "deskcheck": "./cli/deskcheck.mjs"
+  },
   "scripts": {
     "dev": "vite build --watch --mode development",
     "build": "tsc --noEmit && vite build && cp -r icons dist/icons",
