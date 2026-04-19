@@ -320,9 +320,10 @@ function buildSessionMetadata(
   url: string,
   viewport: { width: number; height: number },
   piiMode: SessionMetadata["pii_mode"],
+  idOverride?: string,
 ): SessionMetadata {
   return {
-    id: generateSessionId(),
+    id: idOverride ?? generateSessionId(),
     tab_id: tabId,
     start_time: new Date().toISOString(),
     end_time: null,
@@ -532,6 +533,7 @@ async function handleMessage(
           listener_url: pending.listener_url,
           token: pending.token,
           created_at: new Date().toISOString(),
+          session_id_hint: pending.session_id_hint,
         };
         await setHandoffConfig(activeConfig);
         __pendingHandoffs.delete(tabId);
@@ -585,8 +587,12 @@ async function handleMessage(
       const piiMode = parsePiiMode(msg.piiMode);
       // Defence-in-depth: strip any #_deskcheck= marker that may remain
       const strippedUrl = stripMarker(msg.url)?.cleanHref ?? msg.url;
+      // When a CLI handoff is armed, adopt its session ID so the upload's
+      // X-DeskCheck-Session-Id header matches the listener's armedSessions set.
+      const handoffConfig = await getHandoffConfig();
+      const sessionIdOverride = handoffConfig?.session_id_hint;
       const session = await store.createSession(
-        buildSessionMetadata(msg.tabId, strippedUrl, msg.viewport, piiMode),
+        buildSessionMetadata(msg.tabId, strippedUrl, msg.viewport, piiMode, sessionIdOverride),
       );
       currentStatus = "running";
       activeSessionId = session.id;

@@ -23,11 +23,19 @@ const MAX_BODY_BYTES = 200 * 1024 * 1024; // 200 MB
 const SESSION_ID_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
 const LOOPBACK_HOST = "127.0.0.1";
 
-const USAGE = `deskcheck — DeskCheck CLI handoff receiver (phase 1)
+const USAGE = `deskcheck — DeskCheck CLI handoff receiver
 
 Usage:
   deskcheck listen --out DIR [--port N]
+  deskcheck record <url> [--out DIR] [--timeout S] [--profile existing|isolated] [--json] [--port N]
   deskcheck --help
+
+Commands:
+  listen   Long-running listener. Paste the printed line into the extension
+           side panel's "Attach CLI listener" input to wire up handoff.
+  record   One-shot flow: start listener, launch Chrome at <url> with a
+           session marker, block until the session zip arrives, then print
+           a summary and exit. See cli/deskcheck-record.mjs.
 
 Options:
   --out DIR    Directory to write received session zips to. Will be created
@@ -351,25 +359,31 @@ if (invokedDirectly) {
     process.stdout.write(USAGE);
     process.exit(0);
   }
-  if (parsed.command !== "listen") {
+  if (parsed.command === "record") {
+    // Delegate to cli/deskcheck-record.mjs — its entry check detects the
+    // `deskcheck.mjs record` invocation shape and self-runs on import.
+    await import("./deskcheck-record.mjs");
+    // The record script owns process lifecycle from here (exits on completion).
+  } else if (parsed.command !== "listen") {
     process.stderr.write(USAGE);
     process.exit(1);
-  }
-  try {
-    const { server, token, boundPort, outDir } = await startListener({
-      outDir: parsed.out,
-      port: parsed.port,
-    });
-    process.stdout.write(formatReadyLine({ boundPort, outDir, token }));
-    const shutdown = () => {
-      server.close(() => process.exit(0));
-      // Force-exit if close() hangs on in-flight connections.
-      setTimeout(() => process.exit(0), 1000).unref();
-    };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
-  } catch (err) {
-    process.stderr.write(`deskcheck: failed to start listener: ${err instanceof Error ? err.message : err}\n`);
-    process.exit(1);
+  } else {
+    try {
+      const { server, token, boundPort, outDir } = await startListener({
+        outDir: parsed.out,
+        port: parsed.port,
+      });
+      process.stdout.write(formatReadyLine({ boundPort, outDir, token }));
+      const shutdown = () => {
+        server.close(() => process.exit(0));
+        // Force-exit if close() hangs on in-flight connections.
+        setTimeout(() => process.exit(0), 1000).unref();
+      };
+      process.on("SIGINT", shutdown);
+      process.on("SIGTERM", shutdown);
+    } catch (err) {
+      process.stderr.write(`deskcheck: failed to start listener: ${err instanceof Error ? err.message : err}\n`);
+      process.exit(1);
+    }
   }
 }

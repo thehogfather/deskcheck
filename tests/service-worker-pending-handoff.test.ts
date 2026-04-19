@@ -167,6 +167,52 @@ describe("service-worker pending-handoff (Phase 2)", () => {
       expect(storage["deskcheck_handoff"]).toBeDefined();
       const handoff = storage["deskcheck_handoff"] as any;
       expect(handoff.token).toBe(MARKER.token);
+      expect(handoff.session_id_hint).toBe(MARKER.sessionId);
+    });
+  });
+
+  describe("D13 — START_SESSION adopts CLI session_id_hint", () => {
+    it("session.id matches the CLI-provided sessionId so listener accepts the upload", async () => {
+      const { fake } = installFakeChrome();
+      const { messageHandler } = await loadServiceWorker(fake);
+
+      await dispatch(messageHandler, {
+        type: "MARKER_DETECTED",
+        marker: MARKER,
+        tabId: 42,
+      });
+      await flushAsync();
+
+      const result = await dispatch(messageHandler, {
+        type: "START_SESSION",
+        tabId: 42,
+        url: "https://example.com/",
+        viewport: { width: 1280, height: 800 },
+        piiMode: "full",
+      }) as any;
+      await flushAsync();
+
+      // The extension must adopt the CLI's hex session ID — otherwise the
+      // upload's X-DeskCheck-Session-Id header won't match the listener's
+      // armedSessions set and the POST gets a 403 (falling back to Downloads).
+      expect(result.sessionId).toBe(MARKER.sessionId);
+    });
+
+    it("falls back to a generated UUID when no handoff is armed", async () => {
+      const { fake } = installFakeChrome();
+      const { messageHandler } = await loadServiceWorker(fake);
+
+      const result = await dispatch(messageHandler, {
+        type: "START_SESSION",
+        tabId: 42,
+        url: "https://example.com/",
+        viewport: { width: 1280, height: 800 },
+        piiMode: "full",
+      }) as any;
+      await flushAsync();
+
+      expect(result.sessionId).toBeTruthy();
+      expect(result.sessionId).not.toBe(MARKER.sessionId);
     });
   });
 
