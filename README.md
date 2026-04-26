@@ -33,10 +33,10 @@ DeskCheck is not yet on the Chrome Web Store. To install locally:
 
 ## Usage
 
-1. Click the DeskCheck icon → **Start Session**
-2. Reproduce the bug — the floating widget on the bottom-right shows live metrics (duration, event count, size)
-3. Use the widget to take screenshots, select an element, or add a note
-4. Click **Stop & Download** to export the session zip
+1. Click the DeskCheck toolbar icon — the side panel opens
+2. Click **Start Session**, then reproduce the bug; the panel shows live metrics (duration, event count, size) and a streaming event feed
+3. Use the panel buttons to take a screenshot, pick a DOM element, or add an annotation
+4. Click **Download** to export the session zip (or **Discard** to throw it away)
 
 ## Develop
 
@@ -55,9 +55,9 @@ After `make build`, reload the extension at `chrome://extensions` to pick up cha
 
 Three components, all vanilla TypeScript (no framework):
 
-- **Service worker** (`src/background/`) — session lifecycle, `chrome.debugger` for console/network capture, screenshots, storage, export
-- **Content script** (`src/content/`) — DOM event recording, floating annotation widget (closed Shadow DOM), element picker
-- **Popup** (`src/popup/`) — minimal session-start trigger
+- **Service worker** (`src/background/`) — session lifecycle, `chrome.debugger` for console/network capture, screenshots, storage, export, side panel registration
+- **Content script** (`src/content/`) — DOM event recording, element picker overlay (Shadow DOM); triggered on demand by the side panel — no in-page widget
+- **Side panel** (`src/sidepanel/`) — primary UI: start/download/pause/discard, live event feed, annotation textarea, element picker trigger, screenshot button, PII mode selector, session metrics
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for details and [`docs/roadmap.md`](docs/roadmap.md) for planned features.
 
@@ -82,13 +82,50 @@ node cli/deskcheck.mjs listen --out ./sessions
 
 Copy the last line, paste it into the DeskCheck side panel's **Attach CLI
 listener** row (pre-session only), and record a session as normal. When you
-click Stop, the zip POSTs directly to the listener and lands at
-`./sessions/<session-id>.zip` — no manual Download step, no drag-into-context.
+click **Download**, the zip POSTs directly to the listener and lands at
+`./sessions/<session-id>.zip` — no browser download, no drag-into-context.
 
 The handoff is **opt-in** and **local-only**: the listener binds `127.0.0.1`,
 requires a per-run bearer token, and the zip never leaves your machine. If
-the listener is unreachable at Stop time, DeskCheck falls back to the usual
-browser download and shows a warning in the side panel.
+the listener is unreachable when you click Download, DeskCheck falls back to
+the usual browser download and shows a warning in the side panel.
+
+### One-command flow (`deskcheck record`)
+
+For a fully automated flow — including invoking deskcheck from a *different*
+product repo while debugging it — install the CLI globally, then `deskcheck
+record` handles listener, Chrome launch, and handoff in a single command:
+
+```sh
+# one-time install (in this deskcheck repo)
+make build                          # build the extension dist/ that the CLI loads
+npm link                            # put `deskcheck` on PATH
+npx playwright install chromium     # Chrome for Testing — stable Chrome blocks --load-extension
+
+# from any product repo
+deskcheck record https://app.example.com/buggy-page --out ./sessions --profile isolated --timeout 900
+```
+
+The CLI launches Chrome for Testing pointed at the URL with the DeskCheck
+extension pre-loaded and a handoff marker in the URL fragment. The side panel
+opens automatically. Reproduce the bug, then click **Download** in the
+panel — that POSTs the zip back to the listener and the CLI exits with a JSON
+summary on stdout:
+
+```json
+{"session_id":"abc-1234","path":"./sessions/abc-1234.zip","events":42,"screenshots":2,"duration_s":143}
+```
+
+Exit codes: `0` success, `3` Chrome exited early, `4` timeout, `5` user
+discarded. Options: `--timeout S` (default 600), `--profile isolated` (fresh
+Chrome with extension auto-loaded), `--json` (silent stderr), `--port N`.
+Override the extension build path with `DESKCHECK_EXT_PATH=/path/to/dist`.
+
+See [`cli/README.md`](cli/README.md) for the full CLI reference and
+[`commands/deskcheck-record.md`](commands/deskcheck-record.md) for the
+matching Claude Code slash command.
+
+**macOS only** for now. Linux/Windows Chrome launch is future work.
 
 ## Privacy
 

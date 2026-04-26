@@ -123,6 +123,60 @@ Optional export transport that lets a developer run `deskcheck listen --out DIR`
 **Binding constraints pinned by tests:**
 - Listener binds 127.0.0.1 only (`cli/deskcheck.test.mjs` D5 — non-loopback connect refused at the kernel).
 - Opt-in: no `deskcheck_handoff` key → zero network traffic from `EXPORT_SESSION` (`tests/service-worker-handoff.test.ts` D6).
+
+### CLI handoff (feature #14 phase 2)
+
+Terminal-launched sessions via `deskcheck record <url>`. The CLI starts a listener, generates a session-id + token, launches Chrome with a hash-fragment marker (`#_deskcheck=ID:TOKEN:PORT:v1`), and blocks until the session zip arrives or the timeout fires.
+
+```
+  Terminal                  Chrome Extension                  Browser
+  ────────                  ─────────────────                 ───────
+  deskcheck record <url>
+    │
+    ├── startListener(...)  ──────── 127.0.0.1:<port> ──────────┐
+    │                                                            │
+    ├── launchChrome(url#_deskcheck=ID:TOKEN:PORT:v1)            │
+    │                                                            ▼
+    │                       marker-detector.ts (document_start)
+    │                         ├── stripMarker(href) → replaceState
+    │                         └── sendMessage({MARKER_DETECTED})
+    │                                     │
+    │                       service-worker.ts
+    │                         ├── armPendingHandoff(tabId, {...})
+    │                         └── setBadgeText({tabId, "OPEN"})
+    │                                     │
+    │                        User clicks toolbar action
+    │                         ├── promotePendingToActive(tabId)
+    │                         └── sidePanel.open({tabId})
+    │                                     │
+    │                        Side panel shows "Connected to terminal
+    │                        session <id>" badge. User clicks Start.
+    │                                     │
+    │                        User records bug, clicks Stop.
+    │                                     │
+    │                       EXPORT_SESSION → performHandoff(...)
+    │                                     │
+    │              ◄── POST /upload ───────┘
+    │                  (same Phase 1 path)
+    │
+    ├── Zip written to <out>/<session-id>.zip
+    └── JSON summary on stdout, exit 0
+```
+
+**Key additions over Phase 1:**
+- `src/content/marker-detector.ts` — slim `document_start` script that detects and strips the marker before any page JS runs
+- `src/lib/handoff-marker.ts` — pure marker grammar parser (`ID:TOKEN:PORT:v1`)
+- `src/lib/pending-handoff-store.ts` — per-tab storage for pending handoffs with 1h stale-GC
+- `src/background/handoff-cancel.ts` — cancel sentinel POST for Discard
+- `cli/deskcheck-record.mjs` — the `record` subcommand
+- `cli/chrome-launcher.mjs` — macOS Chrome discovery and launch
+
+**Security invariants (all test-pinned):**
+- Token never lands in `session.json` (SW defence-in-depth strips marker from `msg.url` in START_SESSION)
+- `armedSessions` Set rejects unarmed session-ids with 403 (forged-marker defence)
+- Cancel sentinel reuses all Phase 1 auth checks (no new endpoint surface)
+- Record listener binds 127.0.0.1 only (`cli/deskcheck-record.test.mjs` A5)
+- Marker grammar rejects adversarial inputs (17-case corpus in `tests/handoff-marker.test.ts`)
 - Token lifetime: per-CLI-process bearer, single-use per session-id via an in-memory `usedSessions` set on the CLI (`cli/deskcheck.test.mjs` S17 replay → 409).
 - Data retention: both transports failing leaves the OPFS session intact (`tests/service-worker-handoff.test.ts` S12).
 - No schema change — `schema_version` stays at 1.2.0 and no handoff-related fields reach `session.json` (`src/lib/exporter.golden.test.ts` D10).

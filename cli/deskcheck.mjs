@@ -14,20 +14,29 @@
 // node:fs, node:crypto, node:path).
 
 import { createServer } from "node:http";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, realpathSync } from "node:fs";
 import { mkdir, rename, unlink, stat } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { resolve, join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const MAX_BODY_BYTES = 200 * 1024 * 1024; // 200 MB
 const SESSION_ID_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
 const LOOPBACK_HOST = "127.0.0.1";
 
-const USAGE = `deskcheck — DeskCheck CLI handoff receiver (phase 1)
+const USAGE = `deskcheck — DeskCheck CLI handoff receiver
 
 Usage:
   deskcheck listen --out DIR [--port N]
+  deskcheck record <url> [--out DIR] [--timeout S] [--profile existing|isolated] [--json] [--port N]
   deskcheck --help
+
+Commands:
+  listen   Long-running listener. Paste the printed line into the extension
+           side panel's "Attach CLI listener" input to wire up handoff.
+  record   One-shot flow: start listener, launch Chrome at <url> with a
+           session marker, block until the session zip arrives, then print
+           a summary and exit. See cli/deskcheck-record.mjs.
 
 Options:
   --out DIR    Directory to write received session zips to. Will be created
@@ -50,7 +59,11 @@ export function parseArgv(argv) {
   const args = argv.slice(2);
   if (args.length === 0) return { command: "usage" };
   if (args[0] === "--help" || args[0] === "-h") return { command: "help" };
-  if (args[0] !== "listen") return { command: "unknown", raw: args };
+  if (args[0] !== "listen" && args[0] !== "record") return { command: "unknown", raw: args };
+  if (args[0] === "record") {
+    // `record` is handled by cli/deskcheck-record.mjs, not here
+    return { command: "record", raw: args };
+  }
 
   const flags = { out: null, port: 0 };
   for (let i = 1; i < args.length; i++) {
@@ -167,8 +180,30 @@ async function handleRequest(req, res, ctx) {
     return;
   }
 
-  // 2. Content-Type must be application/zip
+  // 2. Content-Type dispatch: cancel sentinel or zip upload
   const contentType = req.headers["content-type"];
+
+  // Phase 2: armedSessions check (only used by `record` subcommand)
+  if (ctx.armedSessions && !ctx.armedSessions.has(sessionId)) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "unarmed_session" }));
+    return;
+  }
+
+  // Phase 2: cancel sentinel
+  if (typeof contentType === "string" && contentType.startsWith("application/x-deskcheck-cancel")) {
+    if (ctx.usedSessions.has(sessionId)) {
+      res.writeHead(409, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "duplicate_session" }));
+      return;
+    }
+    ctx.usedSessions.add(sessionId);
+    if (ctx.onSettled) ctx.onSettled({ kind: "cancelled", sessionId });
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, cancelled: true }));
+    return;
+  }
+
   if (typeof contentType !== "string" || !contentType.startsWith("application/zip")) {
     res.writeHead(415, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "unsupported_media_type" }));
@@ -291,6 +326,7 @@ async function handleRequest(req, res, ctx) {
   }
 
   ctx.usedSessions.add(sessionId);
+  if (ctx.onSettled) ctx.onSettled({ kind: "ok", sessionId, path: destPath });
   res.writeHead(201, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ ok: true, path: destPath }));
 }
@@ -316,7 +352,17 @@ export function formatReadyLine({ boundPort, outDir, token }) {
 
 // ── Entry point ───────────────────────────────────────────────────────────
 
-const invokedDirectly = process.argv[1] && process.argv[1].endsWith("deskcheck.mjs");
+// True when this module is the entry point — resolved via realpath so a
+// symlinked `deskcheck` shim installed by `npm link` is treated the same
+// as direct `node cli/deskcheck.mjs` invocation.
+const invokedDirectly = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+})();
 
 if (invokedDirectly) {
   const parsed = parseArgv(process.argv);
@@ -324,25 +370,30 @@ if (invokedDirectly) {
     process.stdout.write(USAGE);
     process.exit(0);
   }
-  if (parsed.command !== "listen") {
+  if (parsed.command === "record") {
+    const { runRecordCli } = await import("./deskcheck-record.mjs");
+    await runRecordCli(process.argv);
+    // runRecordCli owns process lifecycle (calls process.exit on completion).
+  } else if (parsed.command !== "listen") {
     process.stderr.write(USAGE);
     process.exit(1);
-  }
-  try {
-    const { server, token, boundPort, outDir } = await startListener({
-      outDir: parsed.out,
-      port: parsed.port,
-    });
-    process.stdout.write(formatReadyLine({ boundPort, outDir, token }));
-    const shutdown = () => {
-      server.close(() => process.exit(0));
-      // Force-exit if close() hangs on in-flight connections.
-      setTimeout(() => process.exit(0), 1000).unref();
-    };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
-  } catch (err) {
-    process.stderr.write(`deskcheck: failed to start listener: ${err instanceof Error ? err.message : err}\n`);
-    process.exit(1);
+  } else {
+    try {
+      const { server, token, boundPort, outDir } = await startListener({
+        outDir: parsed.out,
+        port: parsed.port,
+      });
+      process.stdout.write(formatReadyLine({ boundPort, outDir, token }));
+      const shutdown = () => {
+        server.close(() => process.exit(0));
+        // Force-exit if close() hangs on in-flight connections.
+        setTimeout(() => process.exit(0), 1000).unref();
+      };
+      process.on("SIGINT", shutdown);
+      process.on("SIGTERM", shutdown);
+    } catch (err) {
+      process.stderr.write(`deskcheck: failed to start listener: ${err instanceof Error ? err.message : err}\n`);
+      process.exit(1);
+    }
   }
 }

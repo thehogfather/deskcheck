@@ -867,6 +867,26 @@ export async function mountSidePanel(
         return undefined;
       }
     }
+    // CLI-launched panel (opened as a tab, not docked side panel):
+    // ?targetTab=<id> for a known tab, or ?cliPanel=1 to find the target.
+    try {
+      const params = new URLSearchParams(location.search);
+      const targetTabId = params.get("targetTab");
+      if (targetTabId) {
+        const tab = await chrome.tabs.get(Number(targetTabId));
+        if (tab) return tab;
+      }
+      if (params.has("cliPanel")) {
+        // Find the non-extension tab in this window (the target page)
+        const tabs = await chrome.tabs.query({ currentWindow: true });
+        const target = tabs.find(
+          (t) => t.url && !t.url.startsWith("chrome-extension://"),
+        );
+        if (target) return target;
+      }
+    } catch {
+      // Fall through to default query
+    }
     try {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       return tabs[0];

@@ -31,6 +31,16 @@
         "<all_urls>"
       ],
       "js": [
+        "src/content/marker-detector.ts"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
         "src/content/index.ts"
       ],
       "run_at": "document_idle"

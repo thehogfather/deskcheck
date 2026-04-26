@@ -25,6 +25,12 @@ export interface HandoffConfig {
   token: string;
   /** ISO timestamp of when the user attached this listener. For UX display only. */
   created_at: string;
+  /**
+   * Optional session ID provided by the CLI via the #_deskcheck= marker. When
+   * present, the service worker adopts this as the session.id on START_SESSION
+   * so the X-DeskCheck-Session-Id header matches the CLI's armedSessions set.
+   */
+  session_id_hint?: string;
 }
 
 /**
@@ -36,11 +42,17 @@ export interface HandoffConfig {
 export function isHandoffConfig(value: unknown): value is HandoffConfig {
   if (value === null || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
-  return (
-    typeof v.listener_url === "string" &&
-    typeof v.token === "string" &&
-    typeof v.created_at === "string"
-  );
+  if (
+    typeof v.listener_url !== "string" ||
+    typeof v.token !== "string" ||
+    typeof v.created_at !== "string"
+  ) {
+    return false;
+  }
+  if (v.session_id_hint !== undefined && typeof v.session_id_hint !== "string") {
+    return false;
+  }
+  return true;
 }
 
 const ALLOWED_LOOPBACK_HOSTS = new Set([

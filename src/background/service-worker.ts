@@ -19,6 +19,16 @@ import { nextStatus, type SessionStatus } from "../lib/session-status";
 import { getHandoffConfig } from "../lib/handoff-store";
 import { isValidLoopbackUrl, redactToken } from "../lib/handoff";
 import { performHandoff } from "./handoff-post";
+import { stripMarker } from "../lib/handoff-marker";
+import { sendCancelSentinel } from "./handoff-cancel";
+import {
+  armPendingHandoff,
+  getPendingHandoff,
+  clearPendingHandoff,
+  getAllPendingHandoffs,
+  type PendingHandoffConfig,
+} from "../lib/pending-handoff-store";
+import { setHandoffConfig, clearHandoffConfig } from "../lib/handoff-store";
 
 const debuggerClient = new DebuggerClient();
 // One SessionStore instance owns all persistence for the worker. Its
@@ -59,6 +69,22 @@ async function appendEventBroadcast(
 let currentStatus: SessionStatus = "idle";
 let activeTabId: number | null = null;
 let activeSessionId: string | null = null;
+
+// Feature #14 phase 2: sync mirror of pending handoffs for the
+// chrome.action.onClicked gesture window (which must be sync).
+const __pendingHandoffs = new Map<number, PendingHandoffConfig>();
+
+async function rehydratePendingHandoffs(): Promise<void> {
+  try {
+    const all = await getAllPendingHandoffs();
+    __pendingHandoffs.clear();
+    for (const [tabIdStr, config] of Object.entries(all)) {
+      __pendingHandoffs.set(Number(tabIdStr), config);
+    }
+  } catch {
+    // storage unavailable on wake — start empty
+  }
+}
 
 function isSessionInFlight(): boolean {
   return currentStatus === "running" || currentStatus === "paused";
@@ -225,6 +251,13 @@ chrome.tabs.onCreated.addListener((tab) => {
 // open() call consumes the gesture. Chrome processes the IPCs in
 // order, so the per-tab override is established before Chrome opens
 // the panel.
+function openPanelInGestureWindow(tabId: number): void {
+  void enablePanelOnTab(tabId);
+  chrome.sidePanel.open({ tabId }).catch((err) => {
+    console.warn("[DeskCheck] Failed to open side panel:", err);
+  });
+}
+
 chrome.action.onClicked.addListener((tab) => {
   if (!tab.id) return;
   // If a session is already active, route the click back to the
@@ -232,16 +265,42 @@ chrome.action.onClicked.addListener((tab) => {
   const targetTabId =
     isSessionInFlight() && activeTabId != null ? activeTabId : tab.id;
 
-  // Fire both calls synchronously inside the gesture window.
-  void enablePanelOnTab(targetTabId);
-  chrome.sidePanel.open({ tabId: targetTabId }).catch((err) => {
-    console.warn("[DeskCheck] Failed to open side panel:", err);
-  });
+  // Phase 2: check if this tab has a pending handoff to promote
+  const pendingEntry = __pendingHandoffs.get(targetTabId);
 
-  // Async follow-up: scope other tabs away and (if we redirected)
-  // bring the recording tab into focus. Neither needs a gesture.
+  // Fire both calls synchronously inside the gesture window.
+  openPanelInGestureWindow(targetTabId);
+
+  // Async follow-up: scope other tabs away, promote pending handoff,
+  // and (if we redirected) bring the recording tab into focus.
   void (async () => {
     await scopeOtherTabsAwayFromBound(targetTabId);
+
+    // Promote pending handoff -> active deskcheck_handoff
+    if (pendingEntry) {
+      const activeConfig = {
+        listener_url: pendingEntry.listener_url,
+        token: pendingEntry.token,
+        created_at: new Date().toISOString(),
+      };
+      try {
+        await setHandoffConfig(activeConfig);
+      } catch {
+        // Storage write failed — continue without handoff
+      }
+      __pendingHandoffs.delete(targetTabId);
+      await clearPendingHandoff(targetTabId);
+
+      // Clear the badge
+      chrome.action.setBadgeText({ tabId: targetTabId, text: "" });
+
+      broadcastToPanels({
+        type: "PENDING_HANDOFF_CHANGED",
+        pending: null,
+        active: activeConfig,
+      });
+    }
+
     if (targetTabId !== tab.id) {
       try {
         await chrome.tabs.update(targetTabId, { active: true });
@@ -261,9 +320,10 @@ function buildSessionMetadata(
   url: string,
   viewport: { width: number; height: number },
   piiMode: SessionMetadata["pii_mode"],
+  idOverride?: string,
 ): SessionMetadata {
   return {
-    id: generateSessionId(),
+    id: idOverride ?? generateSessionId(),
     tab_id: tabId,
     start_time: new Date().toISOString(),
     end_time: null,
@@ -298,6 +358,7 @@ async function restoreState() {
 restoreState().catch((err) => {
   console.error("[DeskCheck] Failed to restore state:", err);
 });
+rehydratePendingHandoffs().catch(() => {});
 
 // ── Inject content script into existing tabs on install/update ──
 
@@ -396,8 +457,17 @@ async function handleMessage(
       } catch (e) {
         console.warn("[DeskCheck] discard: detach failed (continuing):", e);
       }
+
+      // Phase 2: best-effort cancel sentinel to wake the CLI
+      const handoff = await getHandoffConfig();
+      if (handoff && activeSessionId) {
+        void sendCancelSentinel(handoff, activeSessionId, fetch).catch(() => {});
+      }
+
       await store.deleteSession();
+      await clearHandoffConfig();
       broadcastToPanels({ type: "SESSION_CLEARED" });
+      broadcastToPanels({ type: "PENDING_HANDOFF_CHANGED", pending: null, active: null });
       currentStatus = "idle";
       activeSessionId = null;
       activeTabId = null;
@@ -443,13 +513,86 @@ async function handleMessage(
       );
     }
 
+    case "MARKER_DETECTED": {
+      const tabId = sender.tab?.id ?? msg.tabId;
+      if (tabId == null) return;
+      const marker = msg.marker;
+      const pending: PendingHandoffConfig = {
+        listener_url: `http://127.0.0.1:${marker.port}`,
+        token: marker.token,
+        session_id_hint: marker.sessionId,
+        armed_at: new Date().toISOString(),
+      };
+      await armPendingHandoff(tabId, pending);
+      __pendingHandoffs.set(tabId, pending);
+
+      if (!isSessionInFlight()) {
+        // Promote the handoff immediately so the panel shows
+        // "Connected" as soon as it mounts.
+        const activeConfig = {
+          listener_url: pending.listener_url,
+          token: pending.token,
+          created_at: new Date().toISOString(),
+          session_id_hint: pending.session_id_hint,
+        };
+        await setHandoffConfig(activeConfig);
+        __pendingHandoffs.delete(tabId);
+        await clearPendingHandoff(tabId);
+
+        broadcastToPanels({
+          type: "PENDING_HANDOFF_CHANGED",
+          pending: null,
+          active: activeConfig,
+        });
+      }
+
+      // Return the extension ID so the CLI can open the panel tab via CDP
+      return {
+        armed: true,
+        extensionId: chrome.runtime.id,
+        panelPath: SIDEPANEL_PATH,
+      };
+    }
+
+    case "GET_PENDING_HANDOFF": {
+      const tabId = sender.tab?.id;
+      if (tabId == null) return { pending: null, active: null };
+      const pending = __pendingHandoffs.get(tabId) ?? null;
+      const active = await getHandoffConfig();
+      return { pending, active };
+    }
+
+    case "CANCEL_PENDING_HANDOFF": {
+      const tabId = msg.tabId ?? sender.tab?.id;
+      if (tabId == null) return;
+      const entry = __pendingHandoffs.get(tabId);
+      if (entry) {
+        __pendingHandoffs.delete(tabId);
+        await clearPendingHandoff(tabId);
+        chrome.action.setBadgeText({ tabId, text: "" });
+        // Best-effort cancel sentinel
+        const config = { listener_url: entry.listener_url, token: entry.token, created_at: entry.armed_at };
+        void sendCancelSentinel(config, entry.session_id_hint, fetch).catch(() => {});
+      }
+      // Also clear any promoted handoff
+      await clearHandoffConfig();
+      broadcastToPanels({ type: "PENDING_HANDOFF_CHANGED", pending: null, active: null });
+      return { cancelled: true };
+    }
+
     case "START_SESSION": {
       const startTransition = nextStatus(currentStatus, "start");
       if (!startTransition.ok) return { recording: true, sessionId: activeSessionId, warnings: [] };
       activeTabId = msg.tabId;
       const piiMode = parsePiiMode(msg.piiMode);
+      // Defence-in-depth: strip any #_deskcheck= marker that may remain
+      const strippedUrl = stripMarker(msg.url)?.cleanHref ?? msg.url;
+      // When a CLI handoff is armed, adopt its session ID so the upload's
+      // X-DeskCheck-Session-Id header matches the listener's armedSessions set.
+      const handoffConfig = await getHandoffConfig();
+      const sessionIdOverride = handoffConfig?.session_id_hint;
       const session = await store.createSession(
-        buildSessionMetadata(msg.tabId, msg.url, msg.viewport, piiMode),
+        buildSessionMetadata(msg.tabId, strippedUrl, msg.viewport, piiMode, sessionIdOverride),
       );
       currentStatus = "running";
       activeSessionId = session.id;
@@ -862,6 +1005,11 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   }
   if (wasRecordingTab) {
     void removeTabFromDeskCheckGroup(tabId);
+  }
+  // Phase 2: clear any pending handoff for this tab
+  if (__pendingHandoffs.has(tabId)) {
+    __pendingHandoffs.delete(tabId);
+    void clearPendingHandoff(tabId);
   }
 });
 
