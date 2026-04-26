@@ -249,10 +249,6 @@ status: draft
   - [ ] Demo mode (`make demo`) renders the full icon set and is visually checked before the PR lands
   - [ ] All existing tests pass; any test that asserted on a specific Unicode glyph is updated to match the new DOM
 
----
-
-## Priority: Later
-
 ### 6. Voice annotations
 - **Persona**: Bug Reporter
 - **Goal**: Let users describe bugs by speaking instead of typing, reducing friction during recording
@@ -278,6 +274,10 @@ status: draft
   - [ ] `session.json` export includes a per-tab breakdown in the summary
   - [ ] Screenshots taken after a switch capture the new tab, never the old one
   - [ ] First-run notice and pre-export reminder copy are updated to mention that users may opt in to move the recording across tabs
+
+---
+
+## Priority: Later
 
 ### 8. Side panel UX with live event timeline
 - **Persona**: Bug Reporter
