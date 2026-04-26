@@ -14,6 +14,20 @@ npx playwright install chromium     # Chrome for Testing (stable Chrome blocks -
 
 After that you can run `deskcheck record https://my.app` from any working directory — the CLI resolves its own extension `dist/` relative to the install location, so cwd doesn't matter. Override with `DESKCHECK_EXT_PATH=/path/to/dist` for dev.
 
+### Optional: Claude Code slash command
+
+If you use Claude Code, install the `/deskcheck-record` slash command so an agent in any product repo can drive the flow end-to-end (run the session, wait for the zip, surface findings):
+
+```sh
+# symlink keeps it in sync with this repo (recommended)
+mkdir -p ~/.claude/commands
+ln -sf "$PWD/commands/deskcheck-record.md" ~/.claude/commands/deskcheck-record.md
+# or copy if you prefer not to symlink
+# cp commands/deskcheck-record.md ~/.claude/commands/
+```
+
+Then in any project, type `/deskcheck-record https://your-app.local` and the agent takes it from there.
+
 ## `deskcheck record <url>` — one-shot capture
 
 ```sh
