@@ -239,15 +239,15 @@ status: draft
   - **Accessibility preserved.** Icons are decorative (`aria-hidden="true"`); the button's accessible name comes from its text label, which stays unchanged. Screen-reader behaviour must not regress.
   - **Visual regression check.** The side panel is the primary surface — run the demo mode (feature #13, `make demo`) before and after and confirm every control still reads correctly at the narrow panel width.
 - **Definition of done**:
-  - [ ] `lucide` is added as a dependency and individual icons are imported per call site (no barrel imports)
-  - [ ] `iconBtn` in `src/sidepanel/sidepanel.ts` accepts a Lucide icon node (or SVG string) in place of the current `icon: string` parameter, and every call site is updated
-  - [ ] Start, Pause, Resume, Stop/Download, Discard, Reset, element picker, and Add-note buttons all render Lucide icons
-  - [ ] Any remaining Unicode icon glyphs elsewhere in the side panel UI (first-run notice, pre-export reminder, event list badges) are replaced with Lucide equivalents
-  - [ ] Icon nodes carry `aria-hidden="true"` and the button's accessible name continues to come from the text label
-  - [ ] `withLoadingState` still correctly swaps labels without destroying icon nodes (existing `.btn-label`-scoped behaviour verified by test)
-  - [ ] Bundle size impact is measured and recorded in the PR description (expected delta: a few KB, since only the imported icons ship)
+  - [x] `lucide` is added as a dependency and individual icons are imported per call site (no barrel imports)
+  - [x] `iconBtn` in `src/sidepanel/sidepanel.ts` accepts a Lucide icon node (or SVG string) in place of the current `icon: string` parameter, and every call site is updated
+  - [x] Start, Pause, Resume, Stop/Download, Discard, Reset, element picker, and Add-note buttons all render Lucide icons
+  - [x] Any remaining Unicode icon glyphs elsewhere in the side panel UI (first-run notice, pre-export reminder, event list badges) are replaced with Lucide equivalents
+  - [x] Icon nodes carry `aria-hidden="true"` and the button's accessible name continues to come from the text label
+  - [x] `withLoadingState` still correctly swaps labels without destroying icon nodes (existing `.btn-label`-scoped behaviour verified by test)
+  - [x] Bundle size impact is measured and recorded in the PR description (expected delta: a few KB, since only the imported icons ship)
   - [ ] Demo mode (`make demo`) renders the full icon set and is visually checked before the PR lands
-  - [ ] All existing tests pass; any test that asserted on a specific Unicode glyph is updated to match the new DOM
+  - [x] All existing tests pass; any test that asserted on a specific Unicode glyph is updated to match the new DOM
 
 ---
 
