@@ -81,6 +81,14 @@
       "claimed_at": "2026-04-11T22:42:55.637313+00:00",
       "branch": "feature/feature-14-phase-2",
       "status": "active"
+    },
+    {
+      "feature_id": "feature-15",
+      "feature_title": "Lucide icons across the UI",
+      "claimed_by": "orch-20260427-roadmap-feature-15",
+      "claimed_at": "2026-04-27T00:00:00+00:00",
+      "branch": "feature/feature-15",
+      "status": "active"
     }
   ]
 }
