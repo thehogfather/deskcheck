@@ -23,6 +23,7 @@
     "vitest": "^4.1.2"
   },
   "dependencies": {
-    "fflate": "^0.8.2"
+    "fflate": "^0.8.2",
+    "lucide": "^1.11.0"
   }
 }
