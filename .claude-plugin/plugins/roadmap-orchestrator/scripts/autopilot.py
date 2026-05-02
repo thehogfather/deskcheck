@@ -396,13 +396,15 @@ def _orchestrator_alive(phase_id: str) -> bool:
 
 
 def _worktree_exists(repo_root: Path, phase_id: str) -> bool:
-    """Both naming conventions are observed in the wild — `EnterWorktree`
-    builds `feature-<id>` while `superpowers:using-git-worktrees` builds
-    `feature+<id>`. Accept either."""
+    """Multiple naming conventions are observed in the wild — `EnterWorktree`
+    builds `feature-<id>`, `superpowers:using-git-worktrees` builds
+    `feature+<id>`, and the feature-numbered orchestrator path (`feature-N`
+    phase ids) builds the worktree at `.claude/worktrees/<phase_id>`
+    directly to avoid the awkward `feature-feature-N` doubling."""
     base = repo_root / ".claude" / "worktrees"
-    return any((base / f"feature-{phase_id}").exists()
-               or (base / f"feature+{phase_id}").exists()
-               for _ in [0])
+    return ((base / phase_id).exists()
+            or (base / f"feature-{phase_id}").exists()
+            or (base / f"feature+{phase_id}").exists())
 
 
 def _branch_has_real_commits(repo_root: Path, phase_id: str) -> bool:
@@ -621,6 +623,18 @@ def main() -> int:
         # Roadmap-DoD completion fallback: features without a claim row but
         # whose checkboxes are all ticked are done — don't dispatch them.
         if feature_id_prefix and _roadmap_dod_complete(roadmap_path, raw_id):
+            continue
+        # Idempotency: claim coordination via `.claude/roadmap-claims.json` only
+        # works when sessions write to main. The feature-numbered flow commits
+        # the claim to the feature branch instead, so main's claims file lags.
+        # Fall back to filesystem signals — a worktree, a feature branch with
+        # commits ahead of main, or a live `claude -p` session for this phase
+        # all mean work is in flight; skip the dispatch to avoid double-runs.
+        if _orchestrator_alive(pid):
+            continue
+        if _branch_has_real_commits(repo_root, pid):
+            continue
+        if _worktree_exists(repo_root, pid):
             continue
         # Failure ceiling
         fcount = _failure_count(claims_path, pid)
