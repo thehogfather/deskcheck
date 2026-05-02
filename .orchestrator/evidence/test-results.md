@@ -1,45 +1,72 @@
-# Test Results — feature-5 (OPFS persistence)
+# Phase 5 evidence: feature-16 validation gate
 
-**Session**: `orch-20260407-222525-6254`
-**Run**: 2026-04-08 (Phase 5, clean)
-
-## Summary
-
-```
-Test Files  14 passed (14)
-     Tests  205 passed (205)
-  Duration  ~770ms
-```
-
-No skipped tests, no flakes, no retries required.
-
-## Files run
-
-- `src/background/screenshot.test.ts`
-- `src/content/recorder.test.ts`
-- `src/lib/agents-doc.test.ts`
-- `src/lib/debugger-client.test.ts`
-- `src/lib/dom-utils.test.ts`
-- `src/lib/exporter.golden.test.ts` (NEW — feature-5)
-- `src/lib/exporter.streaming.test.ts` (NEW — feature-5)
-- `src/lib/exporter.test.ts`
-- `src/lib/jsonl.test.ts` (NEW — feature-5)
-- `src/lib/opfs-session-store.test.ts` (NEW — feature-5)
-- `src/lib/pii-modes.test.ts`
-- `src/lib/privacy.test.ts`
-- `src/lib/session-metrics.test.ts` (MODIFIED — numeric signature)
-- `src/lib/session-store.test.ts` (NEW — contract suite, feature-5)
-
-## New tests introduced
-
-50 new tests across 5 new files. Phase 3 left them failing on
-`NotYetImplementedError` stubs. Phase 4 implemented the backing modules
-and turned them green. No test was modified to "make it pass" — all 50
-passed first-try once the implementation landed (with two small fixes:
-a test buffer off-by-one in `opfs-session-store.test.ts`, and the
-`seq`-first field-order convention in the store impls, both verified to
-be regression-protective rather than test-weakening).
+Generated: 2026-05-02T22:55:00Z
+Branch: feature/feature-16
+Head: 43df0b3 feat(feature-16): freeze PII capture mode at session start
 
 ## Typecheck
 
-`npx tsc --noEmit` — exit 0, no diagnostics.
+```
+$ make typecheck
+npx tsc --noEmit
+(exit 0)
+```
+
+## Unit + integration tests (vitest)
+
+```
+$ make test
+Test Files  45 passed (45)
+     Tests  626 passed (626)
+  Start at  22:51:18
+  Duration  2.40s
+```
+
+## E2E tests (Playwright, full suite)
+
+```
+$ npx playwright test
+Running 15 tests using 1 worker
+
+  ✓ input-capture.spec.ts › full mode captures the typed value (2.9s)
+  ✓ input-capture.spec.ts › metadata mode captures structural metadata but never the raw value (2.6s)
+  ✓ input-capture.spec.ts › feature-16: adversarial DOM mutation cannot defeat metadata mode mid-session (3.9s)
+  ✓ input-capture.spec.ts › none mode emits no input events at all (2.8s)
+  ✓ session.spec.ts × 8 (existing — unaffected)
+  ✓ sidepanel-debug.spec.ts × 3 (existing — unaffected)
+
+  15 passed (33.5s)
+```
+
+## Build
+
+```
+$ make build
+✓ 6 modules transformed.
+✓ built in 18ms (content)
+✓ built in 968ms (sidepanel + service worker)
+```
+
+## Test Level Matrix coverage
+
+| # | DoD checkbox | Level | File | Status |
+|---|---|---|---|---|
+| 1 | Fieldset hidden during running/paused | Unit (jsdom) | `src/sidepanel/sidepanel.test.ts` | ✓ |
+| 2 | Toolbar capture pill visible during active session | Unit (jsdom) | `src/sidepanel/sidepanel.test.ts` | ✓ |
+| 3 | `session.json pii_mode` reflects start-time mode | Unit | `src/lib/exporter.test.ts` (existing) | ✓ |
+| 4 | Recorder gates on session-scoped frozen value | Unit | `src/content/recorder.test.ts` (new freeze tests) | ✓ |
+| 5 | Pre-session selector unchanged | Unit (jsdom) | `src/sidepanel/sidepanel.test.ts` (existing rows + new) | ✓ |
+| 6 | Indicator visibility per status | Unit | `src/lib/sidepanel-controls.test.ts` (matrix) | ✓ |
+| 7 | E2E metadata-mode input has `value_metadata`, no raw `value` (incl. adversarial DOM mutation) | E2E | `e2e/input-capture.spec.ts` | ✓ |
+
+## Acceptance criteria verdict
+
+- [x] `make typecheck` exit 0
+- [x] `make test` exit 0 (626/626)
+- [x] `npx playwright test e2e/input-capture.spec.ts` exit 0 (4/4)
+- [x] Adversarial DOM-mutation E2E asserts `pii_mode === "metadata"` AND `value_metadata` populated AND no `value` key
+- [x] PII fieldset construction is gated by `model.piiMode` (sidepanel.ts:1083) — hide-not-disable contract honoured
+- [x] No `schema_version` change — exporter.test.ts golden round-trip green
+- [x] `src/lib/exporter.golden.test.ts` green (no snapshot regen)
+
+**Verdict: PASS** — every DoD checkbox covered, every test green.

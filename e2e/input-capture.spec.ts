@@ -224,16 +224,24 @@ test.describe("Input event capture (feature #4 + bug fix)", () => {
     await target.fill("first-typed-value");
     await page.waitForTimeout(INPUT_DEBOUNCE_MS + DEBOUNCE_BUFFER_MS);
 
-    // Adversarial step: open the side panel and DOM-mutate the radio
-    // group to "full" mid-session. With the feature #16 hide-not-disable
-    // contract, the fieldset must be ABSENT from the DOM during a
-    // running session — so this mutation should be impossible. We try
-    // to perform it anyway and assert the recording is unaffected.
+    // Adversarial step: open the side panel, wait for it to reflect the
+    // running state, then verify the feature #16 hide-not-disable
+    // contract — the PII fieldset MUST be absent from the DOM during a
+    // running session. As belt-and-suspenders, attempt the mutation
+    // anyway (in case a future regression renders the fieldset). The
+    // recorder closure-freeze (recorder.ts) is the deeper guarantee: even
+    // if the radio click somehow fires, the export must be unaffected.
     const helper = await openSidePanelPage(context, extensionId);
+    // Wait for the side panel to transition to running and re-render.
+    // The capture-mode pill replaces the fieldset; use it as the
+    // settle-signal.
+    await helper.waitForFunction(
+      () => document.getElementById("capture-mode-pill") !== null,
+      { timeout: 5000 },
+    );
     const fieldsetPresent = await helper.evaluate(() => {
       const fs = document.getElementById("pii-mode-fieldset");
       if (!fs) return false;
-      // If somehow present, attempt the mutation.
       const radio = document.querySelector<HTMLInputElement>(
         'input[name="pii-mode"][value="full"]',
       );
