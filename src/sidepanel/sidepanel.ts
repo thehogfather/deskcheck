@@ -56,6 +56,19 @@ import {
   type ControlVisibility,
 } from "../lib/sidepanel-controls";
 import { ScrollAnchor } from "../lib/scroll-anchor";
+import {
+  createElement as lucideCreateElement,
+  ChevronsLeftRightEllipsis,
+  Crosshair,
+  Download as LucideDownload,
+  Pause as LucidePause,
+  Play as LucidePlay,
+  Plus,
+  RotateCcw,
+  Trash2,
+  X as LucideX,
+  type IconNode,
+} from "lucide";
 
 // ─────────────────────────────────────────────────────────────────────
 // Public API
@@ -265,15 +278,31 @@ export async function mountSidePanel(
     autocomplete: "off",
     spellcheck: "false",
   }) as HTMLInputElement;
-  const handoffAttachBtn = iconBtn("handoff-attach-btn", "sp-btn", "\u21B5", "Attach");
+  const handoffAttachBtn = iconBtn("handoff-attach-btn", "sp-btn", lucideNode(ChevronsLeftRightEllipsis), "Attach");
   const handoffAttachedLabel = el("span", { id: "handoff-attached-label", class: "handoff-attached-label" });
-  const handoffDetachBtn = iconBtn("handoff-detach-btn", "sp-btn", "\u2715", "Detach");
+  const handoffDetachBtn = iconBtn("handoff-detach-btn", "sp-btn", lucideNode(LucideX), "Detach");
   const handoffInputRow = el("div", { class: "handoff-input-row" });
   handoffInputRow.appendChild(handoffInput);
   handoffInputRow.appendChild(handoffAttachBtn);
   const handoffAttachedRow = el("div", { class: "handoff-attached-row" });
   handoffAttachedRow.appendChild(handoffAttachedLabel);
   handoffAttachedRow.appendChild(handoffDetachBtn);
+
+  // Compact connection-status badge that lives in the toolbar so the
+  // user can always see whether Stop will ship to a CLI listener (e.g.
+  // a Claude session) or to the browser download. The full Attach/Detach
+  // controls remain pre-session-only in the controls region; the badge
+  // surfaces just the status — and a Detach affordance — at all times.
+  const handoffStatusBadge = el("div", { id: "handoff-status", class: "handoff-status" });
+  const handoffStatusIcon = el("span", { class: "handoff-status-icon" });
+  const handoffStatusText = el("span", { class: "handoff-status-text" });
+  const handoffStatusDetach = el("button", {
+    id: "handoff-status-detach",
+    class: "handoff-status-detach",
+    title: "Detach CLI listener",
+    "aria-label": "Detach CLI listener",
+  }) as HTMLButtonElement;
+  handoffStatusDetach.appendChild(lucideNode(LucideX));
 
   function renderHandoffState(): void {
     clearChildren(handoffRow);
@@ -285,7 +314,43 @@ export async function mountSidePanel(
       handoffInput.value = "";
       handoffRow.appendChild(handoffInputRow);
     }
+
+    // Toolbar status badge — mirrors the attached state so the user
+    // always knows whether Stop will ship to a listener.
+    clearChildren(handoffStatusIcon);
+    handoffStatusIcon.appendChild(
+      lucideNode(ChevronsLeftRightEllipsis),
+    );
+    handoffStatusBadge.classList.toggle("attached", !!handoffAttachedUrl);
+    if (handoffAttachedUrl) {
+      handoffStatusText.textContent = `Attached: ${handoffAttachedUrl}`;
+      if (!handoffStatusBadge.contains(handoffStatusDetach)) {
+        handoffStatusBadge.appendChild(handoffStatusDetach);
+      }
+    } else {
+      handoffStatusText.textContent = "Not attached";
+      if (handoffStatusBadge.contains(handoffStatusDetach)) {
+        handoffStatusDetach.remove();
+      }
+    }
+    if (!handoffStatusBadge.contains(handoffStatusIcon)) {
+      handoffStatusBadge.appendChild(handoffStatusIcon);
+    }
+    if (!handoffStatusBadge.contains(handoffStatusText)) {
+      handoffStatusBadge.appendChild(handoffStatusText);
+    }
   }
+
+  handoffStatusDetach.addEventListener("click", async () => {
+    try {
+      await clearHandoffConfig();
+      handoffAttachedUrl = null;
+      renderHandoffState();
+      asyncErrorLine.textContent = "";
+    } catch (e) {
+      asyncErrorLine.textContent = `Failed to clear listener: ${String(e)}`;
+    }
+  });
 
   handoffAttachBtn.addEventListener("click", async () => {
     const raw = handoffInput.value.trim();
@@ -347,19 +412,25 @@ export async function mountSidePanel(
   renderHandoffState();
 
   /** Build a button with `<span class="btn-icon">icon</span><span class="btn-label">text</span>`. */
-  function iconBtn(id: string, cls: string, icon: string, label: string): HTMLButtonElement {
+  function lucideNode(icon: IconNode): SVGElement {
+    const node = lucideCreateElement(icon);
+    node.setAttribute("aria-hidden", "true");
+    return node;
+  }
+
+  function iconBtn(id: string, cls: string, icon: string | Node, label: string): HTMLButtonElement {
     return el("button", { id, class: cls }, [
       el("span", { class: "btn-icon" }, [icon]),
       el("span", { class: "btn-label" }, [label]),
     ]);
   }
 
-  const startBtn = iconBtn("start-btn", "sp-btn primary", "\u25B6\uFE0E", "Start session");
-  const pauseBtn = iconBtn("pause-btn", "sp-btn", "\u275A\u275A", "Pause");
-  const stopBtn = iconBtn("stop-btn", "sp-btn primary", "\u2913", "Download");
-  const discardBtn = iconBtn("discard-btn", "sp-btn danger", "\u2715", "Discard");
-  const resetBtn = iconBtn("reset-btn", "sp-btn", "\u21BA", "Reset");
-  const pickElementBtn = iconBtn("pick-element-btn", "sp-btn", "\u2316", "select");
+  const startBtn = iconBtn("start-btn", "sp-btn primary", lucideNode(LucidePlay), "Start session");
+  const pauseBtn = iconBtn("pause-btn", "sp-btn", lucideNode(LucidePause), "Pause");
+  const stopBtn = iconBtn("stop-btn", "sp-btn primary", lucideNode(LucideDownload), "Download");
+  const discardBtn = iconBtn("discard-btn", "sp-btn danger", lucideNode(Trash2), "Discard");
+  const resetBtn = iconBtn("reset-btn", "sp-btn", lucideNode(RotateCcw), "Reset");
+  const pickElementBtn = iconBtn("pick-element-btn", "sp-btn", lucideNode(Crosshair), "select");
 
   const annotationText = el("textarea", {
     id: "annotation-text",
@@ -369,7 +440,7 @@ export async function mountSidePanel(
     annotationText.style.height = "auto";
     annotationText.style.height = `${annotationText.scrollHeight}px`;
   });
-  const addNoteBtn = iconBtn("add-note-btn", "sp-btn primary", "\u2795", "Add");
+  const addNoteBtn = iconBtn("add-note-btn", "sp-btn primary", lucideNode(Plus), "Add");
 
   // Annotation wrapper — contains textarea + embedded picker icon.
   const annotationWrapper = el("div", { class: "annotation-wrapper" });
@@ -944,6 +1015,11 @@ export async function mountSidePanel(
 
     // ── Toolbar region (lifecycle + metrics) ────────────────────────
 
+    // Always: connection status badge — surfaces attach state across
+    // every session phase so Stop is never silently shipping to a
+    // listener the user has forgotten about.
+    toolbar.appendChild(handoffStatusBadge);
+
     // Always: metrics row.
     if (model.metrics) toolbar.appendChild(metricsRow);
 
@@ -962,15 +1038,17 @@ export async function mountSidePanel(
     // Empty-state hint (pre-session, no residual).
     if (model.emptyStateHint) toolbar.appendChild(emptyStateHint);
 
-    // Pause button icon + label swap.
+    // Pause button icon + label swap. Uses replaceChildren on the icon
+    // span so the SVG node is swapped atomically (textContent= would
+    // clobber the SVG and leave nothing visible).
     const pauseIcon = pauseBtn.querySelector(".btn-icon");
     const pauseLabel = pauseBtn.querySelector(".btn-label");
     if (status === "paused") {
-      if (pauseIcon) pauseIcon.textContent = "\u25B6\uFE0E";
+      if (pauseIcon) pauseIcon.replaceChildren(lucideNode(LucidePlay));
       if (pauseLabel) pauseLabel.textContent = "Resume";
       pauseBtn.classList.add("primary");
     } else {
-      if (pauseIcon) pauseIcon.textContent = "\u275A\u275A";
+      if (pauseIcon) pauseIcon.replaceChildren(lucideNode(LucidePause));
       if (pauseLabel) pauseLabel.textContent = "Pause";
       pauseBtn.classList.remove("primary");
     }
