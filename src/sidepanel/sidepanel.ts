@@ -250,11 +250,18 @@ export async function mountSidePanel(
 
   // ─── Controls form ────────────────────────────────────────────────
   const piiFieldset = buildPiiFieldset(selectedPiiMode);
+  // Feature #16: capture-mode indicator pill (decorative, no interaction).
+  // Mounted in the toolbar during running/paused; absent otherwise.
+  const captureModePill = buildCaptureModePill();
+  setCaptureModePillText(captureModePill, selectedPiiMode);
   piiFieldset.addEventListener("change", () => {
     const checked = piiFieldset.querySelector<HTMLInputElement>(
       'input[name="pii-mode"]:checked',
     );
     selectedPiiMode = parsePiiMode(checked?.value);
+    // Keep the pill text in sync with the pre-session selection so it
+    // shows the right mode if the user starts the session immediately.
+    setCaptureModePillText(captureModePill, selectedPiiMode);
   });
 
   // ─── Feature-14: "Attach CLI listener" paste affordance ──────────
@@ -1020,6 +1027,14 @@ export async function mountSidePanel(
     // listener the user has forgotten about.
     toolbar.appendChild(handoffStatusBadge);
 
+    // Feature #16: capture-mode indicator pill — mounted only during
+    // a running/paused session. Refresh its text from the live session
+    // mode so the user sees what the recording is locked into.
+    if (model.piiIndicator) {
+      setCaptureModePillText(captureModePill, selectedPiiMode);
+      toolbar.appendChild(captureModePill);
+    }
+
     // Always: metrics row.
     if (model.metrics) toolbar.appendChild(metricsRow);
 
@@ -1299,6 +1314,29 @@ export async function mountSidePanel(
 // ─────────────────────────────────────────────────────────────────────
 // Internal builders
 // ─────────────────────────────────────────────────────────────────────
+
+// Feature #16: non-interactive capture-mode indicator. Surfaces the
+// frozen PII mode during running/paused so the user can see what mode
+// the recording is locked into without an interactive control to
+// undo it. Styled to match the connection-status pill aesthetic
+// (.handoff-status). Decorative — must NEVER contain interactive
+// elements (radio/button/etc.) or the user could defeat the freeze.
+function buildCaptureModePill(): HTMLElement {
+  return el("div", {
+    id: "capture-mode-pill",
+    class: "handoff-status pii-indicator",
+    role: "status",
+    "aria-live": "polite",
+  });
+}
+
+function setCaptureModePillText(pill: HTMLElement, mode: PiiCaptureMode): void {
+  // Capitalise so "Full" / "Metadata" / "None" matches the fieldset
+  // labels — keeps the affordance language consistent across the
+  // pre-session selector and the active-session indicator.
+  const label = mode.charAt(0).toUpperCase() + mode.slice(1);
+  pill.textContent = `Capture: ${label}`;
+}
 
 function buildPiiFieldset(initial: PiiCaptureMode): HTMLFieldSetElement {
   const fs = el("fieldset", { id: "pii-mode-fieldset" }) as HTMLFieldSetElement;

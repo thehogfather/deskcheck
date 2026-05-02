@@ -628,6 +628,17 @@ html, body {
   display: block;
 }
 
+/* Feature #16: capture-mode indicator pill. Decorative read-only
+ * affordance that surfaces the frozen PII mode during running/paused.
+ * Inherits the .handoff-status base styles for visual consistency with
+ * the connection-status pill so the toolbar reads as a coherent set of
+ * "what is locked in for this session" status badges. */
+.pii-indicator {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent, #6366f1);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
 /* Feature #14 phase 1: "Attach CLI listener" paste affordance.
  * Pre-session only — hidden mid-session by the controls visibility
  * contract, not by display: none. */
