@@ -58,7 +58,7 @@ import {
 import { ScrollAnchor } from "../lib/scroll-anchor";
 import {
   createElement as lucideCreateElement,
-  CornerDownLeft,
+  ChevronsLeftRightEllipsis,
   Crosshair,
   Download as LucideDownload,
   Pause as LucidePause,
@@ -278,7 +278,7 @@ export async function mountSidePanel(
     autocomplete: "off",
     spellcheck: "false",
   }) as HTMLInputElement;
-  const handoffAttachBtn = iconBtn("handoff-attach-btn", "sp-btn", lucideNode(CornerDownLeft), "Attach");
+  const handoffAttachBtn = iconBtn("handoff-attach-btn", "sp-btn", lucideNode(ChevronsLeftRightEllipsis), "Attach");
   const handoffAttachedLabel = el("span", { id: "handoff-attached-label", class: "handoff-attached-label" });
   const handoffDetachBtn = iconBtn("handoff-detach-btn", "sp-btn", lucideNode(LucideX), "Detach");
   const handoffInputRow = el("div", { class: "handoff-input-row" });
@@ -287,6 +287,22 @@ export async function mountSidePanel(
   const handoffAttachedRow = el("div", { class: "handoff-attached-row" });
   handoffAttachedRow.appendChild(handoffAttachedLabel);
   handoffAttachedRow.appendChild(handoffDetachBtn);
+
+  // Compact connection-status badge that lives in the toolbar so the
+  // user can always see whether Stop will ship to a CLI listener (e.g.
+  // a Claude session) or to the browser download. The full Attach/Detach
+  // controls remain pre-session-only in the controls region; the badge
+  // surfaces just the status — and a Detach affordance — at all times.
+  const handoffStatusBadge = el("div", { id: "handoff-status", class: "handoff-status" });
+  const handoffStatusIcon = el("span", { class: "handoff-status-icon" });
+  const handoffStatusText = el("span", { class: "handoff-status-text" });
+  const handoffStatusDetach = el("button", {
+    id: "handoff-status-detach",
+    class: "handoff-status-detach",
+    title: "Detach CLI listener",
+    "aria-label": "Detach CLI listener",
+  }) as HTMLButtonElement;
+  handoffStatusDetach.appendChild(lucideNode(LucideX));
 
   function renderHandoffState(): void {
     clearChildren(handoffRow);
@@ -298,7 +314,43 @@ export async function mountSidePanel(
       handoffInput.value = "";
       handoffRow.appendChild(handoffInputRow);
     }
+
+    // Toolbar status badge — mirrors the attached state so the user
+    // always knows whether Stop will ship to a listener.
+    clearChildren(handoffStatusIcon);
+    handoffStatusIcon.appendChild(
+      lucideNode(ChevronsLeftRightEllipsis),
+    );
+    handoffStatusBadge.classList.toggle("attached", !!handoffAttachedUrl);
+    if (handoffAttachedUrl) {
+      handoffStatusText.textContent = `Attached: ${handoffAttachedUrl}`;
+      if (!handoffStatusBadge.contains(handoffStatusDetach)) {
+        handoffStatusBadge.appendChild(handoffStatusDetach);
+      }
+    } else {
+      handoffStatusText.textContent = "Not attached";
+      if (handoffStatusBadge.contains(handoffStatusDetach)) {
+        handoffStatusDetach.remove();
+      }
+    }
+    if (!handoffStatusBadge.contains(handoffStatusIcon)) {
+      handoffStatusBadge.appendChild(handoffStatusIcon);
+    }
+    if (!handoffStatusBadge.contains(handoffStatusText)) {
+      handoffStatusBadge.appendChild(handoffStatusText);
+    }
   }
+
+  handoffStatusDetach.addEventListener("click", async () => {
+    try {
+      await clearHandoffConfig();
+      handoffAttachedUrl = null;
+      renderHandoffState();
+      asyncErrorLine.textContent = "";
+    } catch (e) {
+      asyncErrorLine.textContent = `Failed to clear listener: ${String(e)}`;
+    }
+  });
 
   handoffAttachBtn.addEventListener("click", async () => {
     const raw = handoffInput.value.trim();
@@ -962,6 +1014,11 @@ export async function mountSidePanel(
     clearChildren(controls);
 
     // ── Toolbar region (lifecycle + metrics) ────────────────────────
+
+    // Always: connection status badge — surfaces attach state across
+    // every session phase so Stop is never silently shipping to a
+    // listener the user has forgotten about.
+    toolbar.appendChild(handoffStatusBadge);
 
     // Always: metrics row.
     if (model.metrics) toolbar.appendChild(metricsRow);

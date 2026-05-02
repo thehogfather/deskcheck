@@ -295,3 +295,39 @@ describe("feature-15: withLoadingState preserves the SVG icon node", () => {
     expect(addBtn.querySelector(".btn-label")!.textContent).toBe("Add");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// 5. Connection status is always visible — pre-session AND mid-session
+//    a clear "attached / not attached" indicator must be on screen so
+//    the user always knows whether their next Stop will ship to a
+//    listener (e.g. a Claude session) or to the browser download.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("feature-15: handoff connection status is always visible", () => {
+  it("pre-session: #handoff-status is in the DOM and reads 'Not attached'", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    const status = h.deps.root.querySelector("#handoff-status");
+    expect(status, "#handoff-status must be present pre-session").not.toBeNull();
+    expect(status!.textContent ?? "").toMatch(/not attached/i);
+  });
+
+  it("mid-session: #handoff-status remains in the DOM (does not disappear when session starts)", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    await startSession(h);
+    const status = h.deps.root.querySelector("#handoff-status");
+    expect(status, "#handoff-status must persist into the active session").not.toBeNull();
+  });
+
+  it("#handoff-status lives in the toolbar (top region), not in the bottom controls", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    await startSession(h);
+    const toolbar = h.deps.root.querySelector("#toolbar");
+    const controls = h.deps.root.querySelector("#controls");
+    expect(toolbar, "#toolbar must exist").not.toBeNull();
+    expect(toolbar!.querySelector("#handoff-status"), "#handoff-status must live in the toolbar").not.toBeNull();
+    expect(controls!.querySelector("#handoff-status"), "#handoff-status must NOT live in #controls").toBeNull();
+  });
+});
