@@ -1,15 +1,14 @@
-# Current task: Feature #14 — CLI integration (Phase 2)
+# Current task: Feature #16 — Freeze PII capture mode at session start
 
-- **Feature ID**: feature-14-phase-2
-- **Title**: CLI integration Phase 2 — terminal-launched sessions (`deskcheck record <url>`)
-- **Roadmap entry**: `docs/roadmap.md` → Priority: Now → #14 → Phase 2 DoD (lines 135-143)
-- **Cycle scope**: **Phase 2 only** — terminal-launched sessions. Phase 1 already shipped in PR #14.
-- **Priority**: Now (claimed for active work)
-- **Persona**: Bug Reporter (primary), AI Consumer (secondary)
-- **Effort**: Large (Chrome launcher + content script + service worker pre-bind + side panel badge + CLI subcommand + tests)
-- **Branch**: `feature/feature-14-phase-2`
-- **Session ID**: `orch-20260411-234231-94601`
-- **Started**: 2026-04-11
+- **Feature ID**: feature-16
+- **Title**: Freeze PII capture mode at session start
+- **Roadmap entry**: `docs/roadmap.md` → Priority: Now → #16 (lines 150-168)
+- **Priority**: Now
+- **Persona**: Bug Reporter
+- **Impact**: High | **Effort**: Small
+- **Branch**: `feature/feature-16`
+- **Session ID**: `orch-20260502-213511-81971`
+- **Started**: 2026-05-02
 - **Orchestrator cycle**: three-plan competition with autonomous implementation through PR creation
 
 ## Phase status
@@ -22,26 +21,30 @@
 - [ ] Phase 5: automated validation gate
 - [ ] Phase 6: architecture + roadmap update + PR
 
-## Brief
-
-Full planner brief at `.orchestrator/plans/feature-14-phase-2/brief.md`. That document is the contract the three planners and the judge read.
-
 ## Goal (one paragraph)
 
-Let a developer run `deskcheck record <url>` in one terminal, have Chrome launch with the URL + a session marker in the hash fragment, have the extension content script detect the marker and wire the session to the listener before the user even starts recording, and have the terminal block until the zip arrives then print a JSON summary. Everything built on top of Phase 1's `deskcheck listen` + `performHandoff` + `deskcheck_handoff` storage key — the Phase 2 listener IS the same listener, under a different CLI subcommand.
+Make the export's PII guarantees unambiguous. Today the PII mode selector remains interactive during a recording, and `session.json`'s `pii_mode` field reflects the value at stop-time rather than session-start. A 160s real recording with three mid-flight switches (full → metadata → none) saved only the final value, leaving downstream consumers unable to trust the metadata. This feature freezes the mode at the moment Start is clicked, hides the mode selector entirely from the active-session DOM, and renders a small non-interactive indicator ("Capture: full | metadata | none") in the toolbar so the user can see which mode is in force without being able to change it. Because the mode is frozen, `session.session.pii_mode` is once again truthful and no `pii_mode_changed` timeline events are needed.
 
-## Binding constraints for this cycle
+## Binding constraints (Definition of Done lifted from roadmap)
 
-1. **Security**: listener still binds 127.0.0.1 only; hash-fragment token is cryptographically random; content script strips marker before any timeline event captures the URL.
-2. **Opt-in**: a page with a stray `#_deskcheck=...` that does not match a live listener must be a no-op.
-3. **Schema unchanged**: `schema_version` in `agents-doc.ts` stays put.
-4. **macOS-first**: Linux/Windows are future work.
-5. **No Phase 1 regressions**: the existing paste affordance continues to work; the existing tests stay green.
-6. **Reuse, don't duplicate**: Phase 2 imports `startListener`, `performHandoff`, `HandoffConfig` — it does not re-implement any of them.
+1. **Hide-not-disable.** PII mode fieldset must be absent from the DOM during running/paused — extends feature #11 control-gating contract.
+2. **Schema unchanged.** `pii_mode` stays a single string field on `session.session`. No `schema_version` bump.
+3. **Indicator is decorative.** Reads-only; styled to match the feature #15 connection-status pill. Communicates "locked" by the absence of an interactive control, not via "(locked)" text.
+4. **Recorder gates on a frozen value.** Content-script input listener reads PII mode ONCE at session start, caches it for the lifetime of the session. Mid-session storage updates (e.g. from another window) MUST NOT change in-flight recording behaviour.
+5. **Pre-session selector unchanged.** Full / Metadata / None options work as today before Start.
+
+## Definition of Done (from roadmap)
+
+- [ ] PII mode fieldset is hidden from the DOM during running/paused states (matches feature #11 hide-not-disable contract)
+- [ ] Toolbar shows a non-interactive "Capture: full | metadata | none" indicator while a session is active, styled to match the feature #15 connection-status pill
+- [ ] `session.json` `pii_mode` field reflects the mode at Start time and never changes for the lifetime of the session
+- [ ] Recorder gates input events on a session-scoped frozen mode value, not on a live read of storage
+- [ ] Existing pre-session selector behaviour (Full / Metadata / None) is unchanged
+- [ ] Unit tests cover: indicator visibility per status, frozen-mode persistence across pause/resume cycles, recorder gate behaviour after a mid-session storage update
+- [ ] E2E test: start a session in `metadata` mode, type into an input on a fixture page, confirm the captured `interaction.subtype === "input"` event has `value_metadata` populated and no raw value (closes the existing input-event e2e coverage gap)
 
 ## Out of scope for this cycle
 
-- MCP wrapper (still deferred).
-- Linux / Windows Chrome launch.
-- Schema changes.
-- Any re-implementation of Phase 1 machinery.
+- Feature #17 (Pause-first lifecycle simplification) — separate cycle.
+- Schema changes — `pii_mode` field shape unchanged, no `schema_version` bump.
+- New PII mode beyond Full / Metadata / None.
