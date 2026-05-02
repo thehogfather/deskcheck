@@ -1,0 +1,17 @@
+{
+  "name": "roadmap-orchestrator",
+  "version": "3.4.0",
+  "description": "Autonomous multi-agent orchestrator with three-plan competition (Speed/Quality/Safety), optional Agent Teams for parallel implementation, automated validation gate, OTEL observability, and session summaries. Coordinates feature-dev, testing, and review agents. Includes bundled shared-utilities for roadmap parsing, evidence collection, and validation.",
+  "author": {
+    "name": "patrick"
+  },
+  "keywords": [
+    "orchestration",
+    "multi-agent",
+    "roadmap",
+    "planning",
+    "autonomous",
+    "observability",
+    "utilities"
+  ]
+}

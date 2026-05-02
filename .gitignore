@@ -8,3 +8,5 @@ test-results/
 playwright-report/
 .claude/tools/lean4/
 .claude/docs/lean4/
+__pycache__/
+.DS_Store

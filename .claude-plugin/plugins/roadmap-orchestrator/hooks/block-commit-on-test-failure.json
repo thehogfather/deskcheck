@@ -1,0 +1,32 @@
+{
+  "name": "block-commit-on-test-failure",
+  "description": "Prevents git commits when tests are failing",
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "type": "command",
+      "command": "npm run test:run 2>&1 | tail -20",
+      "timeout": 60000,
+      "triggers": [
+        {
+          "toolName": "Bash",
+          "inputContains": "git commit"
+        }
+      ],
+      "rules": [
+        {
+          "if": "outputContains",
+          "value": "failed",
+          "then": "block",
+          "message": "🚫 Commit blocked: Tests are failing.\n\nRun `npm run test:run` to see failures and fix them before committing."
+        },
+        {
+          "if": "outputContains",
+          "value": "FAIL",
+          "then": "block",
+          "message": "🚫 Commit blocked: Tests are failing.\n\nRun `npm run test:run` to see failures and fix them before committing."
+        }
+      ]
+    }
+  ]
+}

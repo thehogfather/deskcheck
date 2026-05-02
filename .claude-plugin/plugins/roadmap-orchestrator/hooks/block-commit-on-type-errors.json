@@ -1,0 +1,32 @@
+{
+  "name": "block-commit-on-type-errors",
+  "description": "Prevents git commits when TypeScript type checking fails",
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "type": "command",
+      "command": "npx tsc --noEmit 2>&1 || echo 'TYPECHECK_FAILED'",
+      "timeout": 30000,
+      "triggers": [
+        {
+          "toolName": "Bash",
+          "inputContains": "git commit"
+        }
+      ],
+      "rules": [
+        {
+          "if": "outputContains",
+          "value": "TYPECHECK_FAILED",
+          "then": "block",
+          "message": "🚫 Commit blocked: TypeScript type errors detected.\n\nRun `npx tsc --noEmit` to see the errors and fix them before committing."
+        },
+        {
+          "if": "outputContains",
+          "value": "error TS",
+          "then": "block",
+          "message": "🚫 Commit blocked: TypeScript type errors detected.\n\nRun `npx tsc --noEmit` to see the errors and fix them before committing."
+        }
+      ]
+    }
+  ]
+}
