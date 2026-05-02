@@ -158,14 +158,14 @@ status: draft
   - **Schema unchanged.** `pii_mode` stays a single string field on `session.session`. No `schema_version` bump.
   - **Indicator is decorative.** Reads the current mode but offers no interaction. Communicates the "capture is locked" affordance through the absence of an interactive control rather than explicit "(locked)" labelling.
   - **Recorder gates on a frozen value.** The content-script input listener must read PII mode ONCE at session start and cache it for the lifetime of the session. A storage update mid-session (e.g. from another window) must NOT change the in-flight recording's behaviour.
-- **Definition of done**:
-  - [ ] PII mode fieldset is hidden from the DOM during running/paused states (matches feature #11 hide-not-disable contract)
-  - [ ] Toolbar shows a non-interactive "Capture: full | metadata | none" indicator while a session is active, styled to match the feature #15 connection-status pill
-  - [ ] `session.json` `pii_mode` field reflects the mode at Start time and never changes for the lifetime of the session
-  - [ ] Recorder gates input events on a session-scoped frozen mode value, not on a live read of storage
-  - [ ] Existing pre-session selector behaviour (Full / Metadata / None) is unchanged
-  - [ ] Unit tests cover: indicator visibility per status, frozen-mode persistence across pause/resume cycles, recorder gate behaviour after a mid-session storage update
-  - [ ] E2E test: start a session in `metadata` mode, type into an input on a fixture page, confirm the captured `interaction.subtype === "input"` event has `value_metadata` populated and no raw value (closes the existing input-event e2e coverage gap)
+- **Definition of done** *(Implemented — 2026-05-02)*:
+  - [x] PII mode fieldset is hidden from the DOM during running/paused states (matches feature #11 hide-not-disable contract)
+  - [x] Toolbar shows a non-interactive "Capture: full | metadata | none" indicator while a session is active, styled to match the feature #15 connection-status pill
+  - [x] `session.json` `pii_mode` field reflects the mode at Start time and never changes for the lifetime of the session
+  - [x] Recorder gates input events on a session-scoped frozen mode value, not on a live read of storage
+  - [x] Existing pre-session selector behaviour (Full / Metadata / None) is unchanged
+  - [x] Unit tests cover: indicator visibility per status, frozen-mode persistence across pause/resume cycles, recorder gate behaviour after a mid-session storage update
+  - [x] E2E test: start a session in `metadata` mode, type into an input on a fixture page, confirm the captured `interaction.subtype === "input"` event has `value_metadata` populated and no raw value (closes the existing input-event e2e coverage gap)
 
 ### 17. Simplify session lifecycle: Pause-first, contextual exits
 - **Persona**: Bug Reporter
