@@ -36,7 +36,12 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-PHASE_HEADING_RE = re.compile(r"^###\s+(\d+(?:\.\d+)*[a-z]?)\s+", re.M)
+# Matches both fabrick-style "### 0.4 Title" and feature-numbered "### 1. Title".
+# Group 1 = id (e.g. "0.4", "1", "14"), group 2 = remainder of the heading.
+PHASE_HEADING_RE = re.compile(r"^###\s+(\d+(?:\.\d+)*[a-z]?)\.?\s+(.+?)\s*$", re.M)
+SECTION_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.M)
+# `**Dependencies**: Feature #5 (Title)` style prose used by feature-numbered roadmaps.
+FEATURE_DEP_NUM_RE = re.compile(r"[Ff]eature\s*#?\s*(\d+(?:-[a-z0-9-]+)?)\b")
 
 
 def _log(log_path: Path, msg: str) -> None:
@@ -93,18 +98,127 @@ def _is_active_not_stale(entry: dict, now: datetime) -> bool:
     return (now - claimed) < ttl
 
 
-def _all_phase_ids(roadmap_path: Path) -> list[str]:
+def _all_phase_ids(
+    roadmap_path: Path,
+    feature_id_prefix: str = "",
+    priority_sections: list[str] | None = None,
+) -> list[tuple[str, str]]:
+    """Return ordered (full_id, raw_id) pairs for every phase heading.
+
+    `full_id` is what we look up in claims and pass to dispatch (prefix applied).
+    `raw_id` is the bare number from the heading — used for roadmap-side lookups
+    (DoD completion, dependency cross-references).
+
+    Strikethrough headings (`### 10. ~~Title~~`) are skipped — the roadmap uses
+    them to mark features merged into another. `priority_sections`, when set,
+    restricts the result to features under the named `## Priority: …` blocks.
+    """
     text = roadmap_path.read_text()
-    # dedupe while preserving order
     seen: set[str] = set()
-    ids: list[str] = []
-    for m in PHASE_HEADING_RE.finditer(text):
-        pid = m.group(1)
-        if pid in seen:
+    out: list[tuple[str, str]] = []
+    current_section: str | None = None
+    for line in text.splitlines():
+        sm = SECTION_HEADING_RE.match(line)
+        if sm:
+            current_section = sm.group(1).strip()
             continue
-        seen.add(pid)
-        ids.append(pid)
-    return ids
+        m = PHASE_HEADING_RE.match(line)
+        if not m:
+            continue
+        if priority_sections and current_section not in priority_sections:
+            continue
+        raw_id = m.group(1)
+        title = m.group(2).strip()
+        # `~~Title~~` marks a feature that has been merged elsewhere — skip it.
+        if title.startswith("~~"):
+            continue
+        full_id = f"{feature_id_prefix}{raw_id}" if feature_id_prefix else raw_id
+        if full_id in seen:
+            continue
+        seen.add(full_id)
+        out.append((full_id, raw_id))
+    return out
+
+
+def _phase_section_text(roadmap_path: Path, raw_id: str) -> str | None:
+    """Return the body of a feature section keyed by raw heading id, or None."""
+    text = roadmap_path.read_text()
+    lines = text.splitlines()
+    heading_re = re.compile(rf"^###\s+{re.escape(raw_id)}\.?\s+")
+    start = None
+    for i, ln in enumerate(lines):
+        if heading_re.match(ln):
+            start = i
+            break
+    if start is None:
+        return None
+    end = start + 1
+    while end < len(lines):
+        ln = lines[end]
+        if ln.startswith("### ") or ln.startswith("## ") or ln.startswith("# "):
+            break
+        end += 1
+    return "\n".join(lines[start:end])
+
+
+def _roadmap_dod_complete(roadmap_path: Path, raw_id: str) -> bool:
+    """A feature counts as roadmap-complete when every checkbox under its
+    section is ticked. Sections with zero checkboxes don't qualify — we want
+    explicit DoD evidence, not an absence of one.
+    """
+    section = _phase_section_text(roadmap_path, raw_id)
+    if section is None:
+        return False
+    checked = len(re.findall(r"\[[xX]\]", section))
+    unchecked = len(re.findall(r"\[ \]", section))
+    if checked == 0 and unchecked == 0:
+        return False
+    return unchecked == 0
+
+
+def _roadmap_prose_deps(
+    roadmap_path: Path, raw_id: str, feature_id_prefix: str
+) -> list[str]:
+    """Extract dependencies from a `**Dependencies**: …` bullet on this feature.
+
+    Used by feature-numbered roadmaps that don't go through `phased_roadmap_parser`.
+    `Dependencies: None` (or any line whose first word is None) yields no deps.
+    Otherwise every `Feature #N` (or `feature N-suffix`) reference becomes a dep.
+    """
+    if not feature_id_prefix:
+        return []
+    section = _phase_section_text(roadmap_path, raw_id)
+    if section is None:
+        return []
+    m = re.search(r"\*\*Dependencies\*\*\s*:\s*(.+)", section)
+    if not m:
+        return []
+    line = m.group(1).strip()
+    # Stop at the next bullet so we don't slurp later prose
+    line = line.split("\n- ")[0]
+    if line.lower().startswith("none"):
+        return []
+    deps: list[str] = []
+    seen: set[str] = set()
+    for fm in FEATURE_DEP_NUM_RE.finditer(line):
+        dep = f"{feature_id_prefix}{fm.group(1)}"
+        if dep in seen:
+            continue
+        seen.add(dep)
+        deps.append(dep)
+    return deps
+
+
+def _dep_satisfied(
+    claims: dict, dep_id: str, roadmap_path: Path, feature_id_prefix: str
+) -> bool:
+    """A dep is met if the claim is `completed` OR the roadmap shows full DoD."""
+    if claims.get(dep_id, {}).get("status") == "completed":
+        return True
+    if not feature_id_prefix or not dep_id.startswith(feature_id_prefix):
+        return False
+    raw_dep = dep_id[len(feature_id_prefix):]
+    return _roadmap_dod_complete(roadmap_path, raw_dep)
 
 
 def _phase_deps(phase_id: str, repo_root: Path, parser_script: Path) -> list[str]:
@@ -436,6 +550,14 @@ def main() -> int:
     max_failures = int(cfg.get("MAX_PHASE_FAILURES", 3))
     no_wt_grace_min = int(cfg.get("STALE_CLAIM_NO_WORKTREE_MIN", 5))
     no_commit_grace_min = int(cfg.get("STALE_CLAIM_NO_COMMITS_MIN", 15))
+    # Feature-numbered roadmap support: a non-empty prefix turns on the
+    # `### N. Title` + `feature-N` claim convention. Defaults preserve the
+    # phased (fabrick) behaviour.
+    feature_id_prefix = str(cfg.get("FEATURE_ID_PREFIX", "") or "")
+    priority_sections_raw = str(cfg.get("PRIORITY_SECTIONS", "") or "")
+    priority_sections = [
+        s.strip() for s in priority_sections_raw.split(",") if s.strip()
+    ] or None
 
     # Paused?
     pause_sentinel = repo_root / ".orchestrator" / "autopilot.paused"
@@ -481,24 +603,41 @@ def main() -> int:
         _log(log_path, f"missing roadmap or parser — roadmap={roadmap_path.exists()} parser={parser_script.exists()}")
         return 2
 
-    all_phases = _all_phase_ids(roadmap_path)
+    all_phase_pairs = _all_phase_ids(
+        roadmap_path,
+        feature_id_prefix=feature_id_prefix,
+        priority_sections=priority_sections,
+    )
+    all_phases = [pid for pid, _ in all_phase_pairs]
 
     candidates: list[str] = []
-    for pid in all_phases:
+    for pid, raw_id in all_phase_pairs:
         entry = claims.get(pid, {})
         status = entry.get("status")
         if status == "completed":
             continue
         if status == "active" and _is_active_not_stale(entry, now):
             continue  # someone else is already working on it
+        # Roadmap-DoD completion fallback: features without a claim row but
+        # whose checkboxes are all ticked are done — don't dispatch them.
+        if feature_id_prefix and _roadmap_dod_complete(roadmap_path, raw_id):
+            continue
         # Failure ceiling
         fcount = _failure_count(claims_path, pid)
         if fcount >= max_failures:
             continue
-        # Dependency check — explicit deps from parser + major-phase ordering
+        # Dependency check. The phased parser is fabrick-shaped and won't find
+        # anything for feature-numbered roadmaps, so when we have a prefix we
+        # also parse `**Dependencies**: Feature #N` prose. Major-phase ordering
+        # remains a no-op for flat IDs (it short-circuits on no `.`).
         explicit = _phase_deps(pid, repo_root, parser_script)
+        if feature_id_prefix:
+            explicit = sorted(set(explicit) | set(
+                _roadmap_prose_deps(roadmap_path, raw_id, feature_id_prefix)
+            ))
         deps = _effective_deps(pid, explicit, all_phases)
-        if not all(claims.get(d, {}).get("status") == "completed" for d in deps):
+        if not all(_dep_satisfied(claims, d, roadmap_path, feature_id_prefix)
+                   for d in deps):
             continue
         candidates.append(pid)
         if len(candidates) >= slots:

@@ -157,9 +157,17 @@ Autopilot is an idempotent dispatcher. It reads `.orchestrator/config.yaml` for 
 
 ### Your steps
 
-1. **Locate the autopilot script**:
+1. **Locate the autopilot script**. Prefer the per-repo plugin source if present
+   (it's the canonical version when the repo ships its own marketplace), then the
+   plugin cache, then a global fallback.
    ```bash
-   AUTOPILOT="$(ls ~/.claude/plugins/cache/*/roadmap-orchestrator/*/scripts/autopilot.py 2>/dev/null | tail -1)"
+   AUTOPILOT=""
+   if [ -f "$(pwd)/.claude-plugin/plugins/roadmap-orchestrator/scripts/autopilot.py" ]; then
+     AUTOPILOT="$(pwd)/.claude-plugin/plugins/roadmap-orchestrator/scripts/autopilot.py"
+   fi
+   if [ -z "$AUTOPILOT" ]; then
+     AUTOPILOT="$(ls ~/.claude/plugins/cache/*/roadmap-orchestrator/*/scripts/autopilot.py 2>/dev/null | tail -1)"
+   fi
    if [ -z "$AUTOPILOT" ]; then
      AUTOPILOT="$HOME/Documents/claude-config/plugins/roadmap-orchestrator/scripts/autopilot.py"
    fi
