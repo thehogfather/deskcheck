@@ -147,6 +147,65 @@ status: draft
     - [x] Export schema (`schema_version`) is unchanged — the listener receives the same zip structure as a download (`src/lib/exporter.golden.test.ts` D10)
     - [x] README includes a short end-to-end walkthrough: `deskcheck listen --out ./sessions` → paste the ready-line into the side panel → record a session → zip lands at the printed path (phase-1 variant; phase-2 cycle will add the `deskcheck record <url>` walkthrough)
 
+### 16. Freeze PII capture mode at session start
+- **Persona**: Bug Reporter
+- **Goal**: Make the export's PII guarantees unambiguous — the mode in `session.json` metadata must reflect the mode the recording actually ran under, end to end
+- **Impact**: High | **Effort**: Small
+- **Description**: Today the PII mode selector remains interactive during a recording, and `session.json`'s `pii_mode` field is a stop-time snapshot rather than a session-start lock. A real recording exposed the failure: a 160-second session with three mid-flight mode switches (full → metadata → none) stored only the final value, leaving downstream consumers (AI assistants, teammates) unable to trust the metadata. This feature freezes the mode at the moment Start is clicked and removes the selector from the active-session surface entirely. In its place, a small non-interactive indicator ("Capture: full" / "Capture: metadata" / "Capture: none") sits in the toolbar so the user always knows which mode is in force without any way to change it. Because the mode can no longer change, the metadata field is once again truthful and no `pii_mode_changed` timeline events are needed.
+- **Dependencies**: Feature #4 (PII capture modes) defines the modes themselves. Feature #15 (Lucide icons) defines the toolbar status-pill aesthetic the indicator should match.
+- **Constraints**:
+  - **Hide-not-disable.** The PII mode fieldset must be absent from the DOM during a recording, not merely visually disabled — the existing feature #11 contract for control gating extends here.
+  - **Schema unchanged.** `pii_mode` stays a single string field on `session.session`. No `schema_version` bump.
+  - **Indicator is decorative.** Reads the current mode but offers no interaction. Communicates the "capture is locked" affordance through the absence of an interactive control rather than explicit "(locked)" labelling.
+  - **Recorder gates on a frozen value.** The content-script input listener must read PII mode ONCE at session start and cache it for the lifetime of the session. A storage update mid-session (e.g. from another window) must NOT change the in-flight recording's behaviour.
+- **Definition of done**:
+  - [ ] PII mode fieldset is hidden from the DOM during running/paused states (matches feature #11 hide-not-disable contract)
+  - [ ] Toolbar shows a non-interactive "Capture: full | metadata | none" indicator while a session is active, styled to match the feature #15 connection-status pill
+  - [ ] `session.json` `pii_mode` field reflects the mode at Start time and never changes for the lifetime of the session
+  - [ ] Recorder gates input events on a session-scoped frozen mode value, not on a live read of storage
+  - [ ] Existing pre-session selector behaviour (Full / Metadata / None) is unchanged
+  - [ ] Unit tests cover: indicator visibility per status, frozen-mode persistence across pause/resume cycles, recorder gate behaviour after a mid-session storage update
+  - [ ] E2E test: start a session in `metadata` mode, type into an input on a fixture page, confirm the captured `interaction.subtype === "input"` event has `value_metadata` populated and no raw value (closes the existing input-event e2e coverage gap)
+
+### 17. Simplify session lifecycle: Pause-first, contextual exits
+- **Persona**: Bug Reporter
+- **Goal**: Reduce the lifecycle verb surface (currently Start / Pause / Resume / Stop / Discard / Reset) to a smaller set anchored on Pause-as-primary-action, with exits that only appear when meaningful
+- **Impact**: High | **Effort**: Medium
+- **Description**: The current side panel exposes six lifecycle verbs and the relationships between them are non-obvious (when does Reset apply? when does Discard? when is Stop the right verb vs Discard?). This feature collapses the model to a smaller decision tree:
+
+  **Pre-session.** Single action: Start. The PII mode picker (per feature #16) is the only other control. Clicking Start freezes the mode and begins recording.
+
+  **Active session.** Single action: Pause. There is no Stop or Discard mid-recording — if the user wants to ship the session, they pause first. Pause is the "make this safely interruptible" verb and never loses work.
+
+  **Paused session.** Three contextual exits:
+  - **Resume** — continue the same session, no data loss.
+  - **Download** — finalise + zip + browser download. Equivalent to today's Stop & Download. Only shown when the timeline has at least one event.
+  - **Clear** — irreversibly drop the session and return to pre-session. Equivalent to today's Discard + Reset combined. Only shown when the timeline has at least one event.
+
+  **Paused session attached to a CLI listener.** Adds a fourth exit:
+  - **End** — signal the attached listener that the session is complete; the listener can then read the contents. Equivalent to the existing handoff finalisation but invoked explicitly rather than implicitly via Stop. Only shown when a listener is attached.
+
+  Net result: pre-session is one button (Start). Active session is one button (Pause). Paused session is 2-4 buttons depending on event count and listener attachment. Reset and Discard are gone — Clear subsumes their roles from the paused state.
+- **Dependencies**: Feature #11 (Pause/Resume/Stop/Discard/Reset) — this feature simplifies the surface #11 introduced. Feature #14 phase 2 (CLI handoff) — End requires the listener attachment to exist. Feature #16 (frozen PII mode) — the simplified surface assumes the PII picker is gone mid-session.
+- **Constraints**:
+  - **Schema unchanged.** Pause/Resume timeline markers from feature #11 stay. Download is the existing finalise + zip path. End is a new variant of finalisation that POSTs to the listener instead of triggering a download — but the zip payload is byte-identical (feature #14 invariant). No `schema_version` bump.
+  - **No data loss across Pause.** Pausing does not drop events. Resume continues the same session id and timeline.
+  - **Clear is destructive and confirmed.** Like today's Discard, Clear shows a confirmation dialog naming the concrete data at risk ("Delete N events and M screenshots? This cannot be undone.") and only proceeds on explicit confirmation.
+  - **Download / Clear / End visibility is reactive.** Their presence depends on (a) whether the timeline is non-empty and (b) whether a listener is attached. Both must update live as the user pauses / attaches / detaches without re-mounting the panel.
+  - **No verb collisions.** Today's Discard and Reset are removed from the surface — they don't reappear under different names mid-session. Their post-session "clear residual state" role is covered by Clear from the paused state.
+- **Definition of done**:
+  - [ ] Pre-session shows exactly: Start, PII mode picker (feature #16), and the connection-status pill. No Reset, no residual-state controls
+  - [ ] Active (running) session shows exactly: Pause, plus the annotation/picker controls and the capture-mode indicator from feature #16
+  - [ ] Paused session shows exactly: Resume, plus Download/Clear (only when timeline has events), plus End (only when a listener is attached)
+  - [ ] Empty paused session (no events captured) shows only Resume — Download and Clear are absent from the DOM (hide-not-disable)
+  - [ ] Attaching a listener while paused adds the End button live; detaching removes it live — no panel re-mount required
+  - [ ] Clear shows a destructive confirmation dialog matching today's Discard dialog copy and behaviour, including the cancel path
+  - [ ] End triggers the same handoff POST path as today's Stop-with-listener-attached, with the same byte-identical zip payload, and exits the session to the pre-session state on success
+  - [ ] Existing `Stop`, `Discard`, and `Reset` button ids are removed from the DOM. Tests that reference them are migrated to the new ids (`download-btn`, `clear-btn`, `end-btn`)
+  - [ ] Unit tests cover: each paused-state visibility combination (empty / non-empty × attached / detached), the live update when listener attaches mid-pause, Clear destructive confirmation cancel path, End → handoff POST round-trip
+  - [ ] E2E test: Start (full mode) → type into an input → Pause → confirm Download appears → Download → exported zip contains the typed input event
+  - [ ] E2E test: Start → Pause (no events captured) → confirm only Resume is visible → Resume → type → Pause → confirm Download/Clear appear
+
 ---
 
 ## Priority: Next
@@ -249,10 +308,6 @@ status: draft
   - [ ] Demo mode (`make demo`) renders the full icon set and is visually checked before the PR lands
   - [x] All existing tests pass; any test that asserted on a specific Unicode glyph is updated to match the new DOM
 
----
-
-## Priority: Later
-
 ### 6. Voice annotations
 - **Persona**: Bug Reporter
 - **Goal**: Let users describe bugs by speaking instead of typing, reducing friction during recording
@@ -278,6 +333,10 @@ status: draft
   - [ ] `session.json` export includes a per-tab breakdown in the summary
   - [ ] Screenshots taken after a switch capture the new tab, never the old one
   - [ ] First-run notice and pre-export reminder copy are updated to mention that users may opt in to move the recording across tabs
+
+---
+
+## Priority: Later
 
 ### 8. Side panel UX with live event timeline
 - **Persona**: Bug Reporter
@@ -347,14 +406,17 @@ graph LR
     1[1. Session size indicator] --> 5[5. Incremental persistence]
     2[2. Sensitive data warnings] --> 7[7. Opt-in tab switching]
     3[3. Schema docs]
-    4[4. PII capture modes]
+    4[4. PII capture modes] --> 16[16. Freeze PII mode at start]
     6[6. Voice annotations]
     8[8. Side panel UX] --> 11[11. Side panel session controls]
     11 --> 12[12. Control layout refinement]
     12 --> 13[13. Standalone dogfooding mode]
     12 --> 15[15. Lucide icons]
+    15 --> 16
+    11 --> 17[17. Pause-first lifecycle]
+    14[14. CLI integration] --> 17
+    16 --> 17
     9[9. Active tab group]
-    14[14. CLI integration]
 ```
 
 - Feature #5 (Incremental persistence) benefits from #1 (Session size indicator) shipping first — users can see the improvement, and the indicator's calculation needs to be compatible with both storage backends.
@@ -365,4 +427,6 @@ graph LR
 - Features #8 (Side panel UX) and #9 (Active tab group) are complementary "active session visibility" cues but can ship independently.
 - Feature #14 (CLI integration) has no strict dependencies. It benefits from #5 (OPFS) once larger sessions can flow end-to-end without memory limits, and from #13 (standalone dogfooding) which gives a convenient local target for iterating on the listener protocol — but neither is a blocker.
 - Feature #15 (Lucide icons) depends on #12 — it replaces the Unicode icons that #12 introduced.
+- Feature #16 (Freeze PII mode at start) depends on #4 (PII capture modes) for the modes themselves and benefits from #15 (Lucide icons) for the toolbar status-pill aesthetic the indicator adopts.
+- Feature #17 (Pause-first lifecycle) depends on #11 (the surface it simplifies), #14 phase 2 (the listener attachment that unlocks End), and #16 (the simplified surface assumes the PII picker is gone mid-session).
 - All other features are independent.
