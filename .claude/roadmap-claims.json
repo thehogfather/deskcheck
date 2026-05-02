@@ -1,95 +1,104 @@
 {
-  "version": 1,
-  "claims": [
-    {
-      "feature_id": "feature-2",
-      "feature_title": "Sensitive data warnings",
-      "claimed_by": "orch-20260407-203409-26891",
-      "claimed_at": "2026-04-07T19:34:14.514890+00:00",
-      "released_at": "2026-04-07T19:56:00+00:00",
-      "branch": "feature/sensitive-data-warnings",
-      "status": "completed"
-    },
-    {
-      "feature_id": "feature-4",
-      "feature_title": "PII capture modes",
-      "claimed_by": "orch-20260407-193920-41095",
-      "claimed_at": "2026-04-07T19:39:28.217550+00:00",
-      "branch": "feature/pii-capture-modes",
-      "status": "completed",
-      "released_at": "2026-04-07T20:06:41.643689+00:00"
-    },
-    {
-      "feature_id": "feature-3",
-      "feature_title": "Schema documentation for AI consumers",
-      "claimed_by": "orch-20260407-194547-56977",
-      "claimed_at": "2026-04-07T19:45:47+00:00",
-      "released_at": "2026-04-07T21:15:00+00:00",
-      "branch": "feature/schema-docs-for-ai-consumers",
-      "status": "completed"
-    },
-    {
-      "feature_id": "feature-5",
-      "feature_title": "Incremental persistence (OPFS)",
-      "claimed_by": "orch-20260407-222525-6254",
-      "claimed_at": "2026-04-07T22:25:57.914196+00:00",
-      "released_at": "2026-04-08T00:10:00+00:00",
-      "branch": "feature/incremental-persistence-opfs",
-      "status": "completed",
-      "pr": "https://github.com/thehogfather/deskcheck/pull/5"
-    },
-    {
-      "feature_id": "feature-8",
-      "feature_title": "Side panel UX with live event timeline",
-      "claimed_by": "orch-20260407-222834-15236",
-      "claimed_at": "2026-04-07T22:28:47.597539+00:00",
-      "branch": "feature/feature-8",
-      "status": "completed",
-      "released_at": "2026-04-07T23:16:57.678001+00:00"
-    },
-    {
-      "feature_id": "feature-9",
-      "feature_title": "Automatic tab group for active DeskCheck tabs",
-      "claimed_by": "orch-20260408-222003-4289",
-      "claimed_at": "2026-04-08T22:20:13.729588+00:00",
-      "branch": "feature/feature-9",
-      "status": "completed",
-      "released_at": "2026-04-08T22:40:40.310958+00:00"
-    },
-    {
-      "feature_id": "feature-11",
-      "feature_title": "Side panel session controls: lifecycle, feedback, gated UI, reset",
-      "claimed_by": "orch-20260408-232745-23798",
-      "claimed_at": "2026-04-08T22:28:26.803893+00:00",
-      "branch": "feature/feature-11",
-      "status": "completed",
-      "released_at": "2026-04-08T23:18:40.237063+00:00"
-    },
-    {
-      "feature_id": "feature-12",
-      "feature_title": "Side panel control layout refinement",
-      "claimed_by": "orch-20260409-132701-71903",
-      "claimed_at": "2026-04-09T12:27:01.882399+00:00",
-      "branch": "feature/feature-12",
-      "status": "completed",
-      "released_at": "2026-04-09T12:48:21.970021+00:00"
-    },
-    {
-      "feature_id": "feature-14-phase-2",
-      "feature_title": "CLI integration Phase 2 \u2014 terminal-launched sessions",
-      "claimed_by": "orch-20260411-234231-94601",
-      "claimed_at": "2026-04-11T22:42:55.637313+00:00",
-      "branch": "feature/feature-14-phase-2",
-      "status": "active"
-    },
-    {
-      "feature_id": "feature-15",
-      "feature_title": "Lucide icons across the UI",
-      "claimed_by": "orch-20260427-roadmap-feature-15",
-      "claimed_at": "2026-04-27T00:00:00+00:00",
-      "released_at": "2026-04-27T06:40:00+00:00",
-      "branch": "feature/feature-15",
-      "status": "completed"
-    }
-  ]
+  "feature-11": {
+    "branch": "feature/feature-11",
+    "claimed_at": "2026-04-08T22:28:26.803893+00:00",
+    "claimed_by": "orch-20260408-232745-23798",
+    "feature_id": "feature-11",
+    "feature_title": "Side panel session controls: lifecycle, feedback, gated UI, reset",
+    "released_at": "2026-04-08T23:18:40.237063+00:00",
+    "session_id": "orch-20260408-232745-23798",
+    "status": "completed"
+  },
+  "feature-12": {
+    "branch": "feature/feature-12",
+    "claimed_at": "2026-04-09T12:27:01.882399+00:00",
+    "claimed_by": "orch-20260409-132701-71903",
+    "feature_id": "feature-12",
+    "feature_title": "Side panel control layout refinement",
+    "released_at": "2026-04-09T12:48:21.970021+00:00",
+    "session_id": "orch-20260409-132701-71903",
+    "status": "completed"
+  },
+  "feature-14-phase-2": {
+    "branch": "feature/feature-14-phase-2",
+    "claimed_at": "2026-04-11T22:42:55.637313+00:00",
+    "claimed_by": "orch-20260411-234231-94601",
+    "feature_id": "feature-14-phase-2",
+    "feature_title": "CLI integration Phase 2 \u2014 terminal-launched sessions",
+    "released_at": "2026-05-02T20:57:00+00:00",
+    "released_by": "orch-20260411-234231-94601",
+    "session_id": "orch-20260411-234231-94601",
+    "status": "abandoned"
+  },
+  "feature-15": {
+    "branch": "feature/feature-15",
+    "claimed_at": "2026-04-27T00:00:00+00:00",
+    "claimed_by": "orch-20260427-roadmap-feature-15",
+    "feature_id": "feature-15",
+    "feature_title": "Lucide icons across the UI",
+    "released_at": "2026-04-27T06:40:00+00:00",
+    "session_id": "orch-20260427-roadmap-feature-15",
+    "status": "completed"
+  },
+  "feature-2": {
+    "branch": "feature/sensitive-data-warnings",
+    "claimed_at": "2026-04-07T19:34:14.514890+00:00",
+    "claimed_by": "orch-20260407-203409-26891",
+    "feature_id": "feature-2",
+    "feature_title": "Sensitive data warnings",
+    "released_at": "2026-04-07T19:56:00+00:00",
+    "session_id": "orch-20260407-203409-26891",
+    "status": "completed"
+  },
+  "feature-3": {
+    "branch": "feature/schema-docs-for-ai-consumers",
+    "claimed_at": "2026-04-07T19:45:47+00:00",
+    "claimed_by": "orch-20260407-194547-56977",
+    "feature_id": "feature-3",
+    "feature_title": "Schema documentation for AI consumers",
+    "released_at": "2026-04-07T21:15:00+00:00",
+    "session_id": "orch-20260407-194547-56977",
+    "status": "completed"
+  },
+  "feature-4": {
+    "branch": "feature/pii-capture-modes",
+    "claimed_at": "2026-04-07T19:39:28.217550+00:00",
+    "claimed_by": "orch-20260407-193920-41095",
+    "feature_id": "feature-4",
+    "feature_title": "PII capture modes",
+    "released_at": "2026-04-07T20:06:41.643689+00:00",
+    "session_id": "orch-20260407-193920-41095",
+    "status": "completed"
+  },
+  "feature-5": {
+    "branch": "feature/incremental-persistence-opfs",
+    "claimed_at": "2026-04-07T22:25:57.914196+00:00",
+    "claimed_by": "orch-20260407-222525-6254",
+    "feature_id": "feature-5",
+    "feature_title": "Incremental persistence (OPFS)",
+    "pr": "https://github.com/thehogfather/deskcheck/pull/5",
+    "released_at": "2026-04-08T00:10:00+00:00",
+    "session_id": "orch-20260407-222525-6254",
+    "status": "completed"
+  },
+  "feature-8": {
+    "branch": "feature/feature-8",
+    "claimed_at": "2026-04-07T22:28:47.597539+00:00",
+    "claimed_by": "orch-20260407-222834-15236",
+    "feature_id": "feature-8",
+    "feature_title": "Side panel UX with live event timeline",
+    "released_at": "2026-04-07T23:16:57.678001+00:00",
+    "session_id": "orch-20260407-222834-15236",
+    "status": "completed"
+  },
+  "feature-9": {
+    "branch": "feature/feature-9",
+    "claimed_at": "2026-04-08T22:20:13.729588+00:00",
+    "claimed_by": "orch-20260408-222003-4289",
+    "feature_id": "feature-9",
+    "feature_title": "Automatic tab group for active DeskCheck tabs",
+    "released_at": "2026-04-08T22:40:40.310958+00:00",
+    "session_id": "orch-20260408-222003-4289",
+    "status": "completed"
+  }
 }
