@@ -206,6 +206,83 @@ test.describe("Input event capture (feature #4 + bug fix)", () => {
     await stopSession(context, extensionId);
   });
 
+  test("feature-16: adversarial DOM mutation cannot defeat metadata mode mid-session", async ({
+    context,
+    extensionId,
+  }) => {
+    const page = await context.newPage();
+    await page.goto(TEST_PAGE, { waitUntil: "domcontentloaded" });
+    await page.bringToFront();
+    await injectInputField(page);
+
+    // Start in metadata mode — the user's privacy contract.
+    await startSessionWithMode(context, extensionId, TEST_PAGE, "metadata");
+    await page.waitForTimeout(150);
+
+    const target = page.locator("#dc-test-input");
+    await target.click();
+    await target.fill("first-typed-value");
+    await page.waitForTimeout(INPUT_DEBOUNCE_MS + DEBOUNCE_BUFFER_MS);
+
+    // Adversarial step: open the side panel and DOM-mutate the radio
+    // group to "full" mid-session. With the feature #16 hide-not-disable
+    // contract, the fieldset must be ABSENT from the DOM during a
+    // running session — so this mutation should be impossible. We try
+    // to perform it anyway and assert the recording is unaffected.
+    const helper = await openSidePanelPage(context, extensionId);
+    const fieldsetPresent = await helper.evaluate(() => {
+      const fs = document.getElementById("pii-mode-fieldset");
+      if (!fs) return false;
+      // If somehow present, attempt the mutation.
+      const radio = document.querySelector<HTMLInputElement>(
+        'input[name="pii-mode"][value="full"]',
+      );
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      return true;
+    });
+    expect(
+      fieldsetPresent,
+      "feature-16 contract: PII fieldset must be absent from the side panel DOM during a running session",
+    ).toBe(false);
+    await helper.close();
+
+    // Type a second time — the recorder must still apply metadata-mode gating.
+    await target.click();
+    await target.fill("second-typed-value");
+    await page.waitForTimeout(INPUT_DEBOUNCE_MS + DEBOUNCE_BUFFER_MS);
+
+    const events = await readEvents(context, extensionId);
+    const inputEvents = events.filter(
+      (e): e is InputEvent =>
+        e.type === "interaction" && e.subtype === "input",
+    );
+
+    expect(
+      inputEvents.length,
+      "metadata mode must keep emitting input events even after adversarial DOM mutation",
+    ).toBeGreaterThan(0);
+    for (const ev of inputEvents) {
+      expect(
+        ev.value,
+        "no event may carry the raw value after adversarial mid-session mutation",
+      ).toBeUndefined();
+      expect(
+        ev.value_metadata,
+        "every event must carry value_metadata in metadata mode",
+      ).toBeDefined();
+    }
+    // The captured event payloads must not contain either typed value
+    // anywhere (defense in depth — JSON.stringify scan).
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain("first-typed-value");
+    expect(serialized).not.toContain("second-typed-value");
+
+    await stopSession(context, extensionId);
+  });
+
   test("none mode emits no input events at all", async ({
     context,
     extensionId,

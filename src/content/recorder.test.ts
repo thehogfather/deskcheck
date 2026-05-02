@@ -246,4 +246,55 @@ describe("recorder PII modes", () => {
       expect(clicks).toHaveLength(1);
     });
   });
+
+  // ───────────────────────────────────────────────────────────────────
+  // Feature #16 — recorder freezes the PII mode at session start.
+  //
+  // The DoD requires gating "on a session-scoped frozen mode value, not
+  // on a live read of storage". We test this by mutating the opts
+  // object after startRecording — a deeply-frozen recorder must ignore
+  // the mutation. This pins the contract so a future refactor that
+  // reads opts.piiMode lazily inside the input handler (or subscribes
+  // to chrome.storage to follow live updates) cannot quietly leak raw
+  // values when the user picked metadata or none.
+  // ───────────────────────────────────────────────────────────────────
+
+  describe("feature-16: PII mode is frozen at start (closure freeze)", () => {
+    it("mutating opts.piiMode after start does NOT change captured payload shape (metadata → full leak prevented)", () => {
+      const el = document.createElement("input");
+      el.type = "text";
+      document.body.appendChild(el);
+      const opts = { piiMode: "metadata" as const } as { piiMode: "full" | "metadata" | "none" };
+      stop = startRecording((e) => events.push(e), opts);
+      // Adversarial mid-session "switch" — simulate a future refactor
+      // where the source of opts could mutate (e.g. live storage update).
+      opts.piiMode = "full";
+      el.value = "leaked-secret-12345";
+      dispatchInput(el);
+      flushDebounce();
+      const ie = inputEvents();
+      expect(ie).toHaveLength(1);
+      // Recorder must keep using "metadata" — no raw value, only metadata.
+      expect((ie[0] as any).value, "post-mutation event must NOT include raw value").toBeUndefined();
+      expect((ie[0] as any).value_metadata).toBeDefined();
+      expect(JSON.stringify(events)).not.toContain("leaked-secret-12345");
+    });
+
+    it("mutating opts.piiMode from full to none does NOT silence the recorder", () => {
+      const el = document.createElement("input");
+      el.type = "text";
+      document.body.appendChild(el);
+      const opts = { piiMode: "full" as const } as { piiMode: "full" | "metadata" | "none" };
+      stop = startRecording((e) => events.push(e), opts);
+      opts.piiMode = "none";
+      el.value = "still-recorded";
+      dispatchInput(el);
+      flushDebounce();
+      const ie = inputEvents();
+      // The full-mode listener was registered at start; flipping opts to
+      // "none" mid-session must NOT silently turn the recorder off.
+      expect(ie).toHaveLength(1);
+      expect((ie[0] as any).value).toBe("still-recorded");
+    });
+  });
 });

@@ -263,6 +263,8 @@ describe("controls region contents (matrix #14)", () => {
     h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
 
+    // Updated for feature-16: the PII fieldset is REMOVED from the DOM
+    // during a running session and replaced by the capture-mode pill.
     const required = [
       "pause-btn",
       "stop-btn",
@@ -270,7 +272,6 @@ describe("controls region contents (matrix #14)", () => {
       "pick-element-btn",
       "annotation-text",
       "add-note-btn",
-      "pii-mode-fieldset",
       "metrics-row",
     ];
     for (const id of required) {
@@ -278,6 +279,8 @@ describe("controls region contents (matrix #14)", () => {
     }
     // Start is hidden once a session is active.
     expect(h.deps.root.querySelector("#start-btn")).toBeNull();
+    // PII mode fieldset must be absent (hide-not-disable) during active session.
+    expect(h.deps.root.querySelector("#pii-mode-fieldset")).toBeNull();
   });
 });
 
@@ -1174,7 +1177,7 @@ describe("feature-12: lifecycle controls in toolbar", () => {
 });
 
 describe("feature-12: annotation area in controls", () => {
-  it("active session: #controls contains annotation-text, add-note-btn, pii-mode-fieldset", async () => {
+  it("active session: #controls contains annotation-text and add-note-btn", async () => {
     const h = makeHarness();
     await mountSidePanel(h.deps);
     h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
@@ -1182,7 +1185,66 @@ describe("feature-12: annotation area in controls", () => {
     const controls = h.deps.root.querySelector("#controls")!;
     expect(controls.querySelector("#annotation-text")).not.toBeNull();
     expect(controls.querySelector("#add-note-btn")).not.toBeNull();
-    expect(controls.querySelector("#pii-mode-fieldset")).not.toBeNull();
+    // Updated for feature-16: pii-mode-fieldset is removed during active session.
+    expect(controls.querySelector("#pii-mode-fieldset")).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Feature #16 — PII mode is frozen at session start.
+//
+// The selector fieldset is removed from the DOM during running/paused
+// (matches feature #11 hide-not-disable contract). A non-interactive
+// "Capture: <mode>" indicator pill is mounted in its place so the user
+// can see the locked mode without being able to change it.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("feature-16: PII fieldset hidden during running session", () => {
+  it("pre-session shows fieldset and NOT capture-mode pill", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    expect(h.deps.root.querySelector("#pii-mode-fieldset")).not.toBeNull();
+    expect(h.deps.root.querySelector("#capture-mode-pill")).toBeNull();
+  });
+
+  it("after Start (running): fieldset removed, capture-mode pill rendered", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.deps.root.querySelector("#pii-mode-fieldset")).toBeNull();
+    const pill = h.deps.root.querySelector("#capture-mode-pill");
+    expect(pill, "capture-mode-pill must be present during running").not.toBeNull();
+    // Pill is decorative — no interactive elements inside.
+    expect(pill!.querySelector("input,button,select,textarea")).toBeNull();
+    // Pill text reflects the mode chosen at start.
+    expect(pill!.textContent?.toLowerCase()).toContain("capture");
+    expect(pill!.textContent?.toLowerCase()).toContain("full");
+  });
+
+  it("pill text reflects the mode picked at start (metadata)", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    const metaRadio = h.deps.root.querySelector<HTMLInputElement>(
+      'input[name="pii-mode"][value="metadata"]',
+    );
+    metaRadio!.checked = true;
+    metaRadio!.dispatchEvent(new Event("change", { bubbles: true }));
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const pill = h.deps.root.querySelector("#capture-mode-pill")!;
+    expect(pill.textContent?.toLowerCase()).toContain("metadata");
+  });
+
+  it("paused state keeps fieldset hidden and pill visible", async () => {
+    const h = makeHarness();
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.deps.root.querySelector("#pii-mode-fieldset")).toBeNull();
+    expect(h.deps.root.querySelector("#capture-mode-pill")).not.toBeNull();
   });
 });
 
