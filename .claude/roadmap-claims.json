@@ -40,6 +40,12 @@
     "session_id": "orch-20260427-roadmap-feature-15",
     "status": "completed"
   },
+  "feature-16": {
+    "claimed_at": "2026-05-02T21:35:11+00:00",
+    "session_id": "orch-20260502-213511-81971",
+    "status": "active",
+    "ttl_hours": 24
+  },
   "feature-2": {
     "branch": "feature/sensitive-data-warnings",
     "claimed_at": "2026-04-07T19:34:14.514890+00:00",
