@@ -1071,22 +1071,33 @@ export async function mountSidePanel(
     clearChildren(toolbar);
     clearChildren(controls);
 
-    // ── Toolbar region (lifecycle + metrics) ────────────────────────
+    // ── Toolbar region: status row above controls row ──────────────
+    //
+    // Two horizontal rows:
+    //   1. #toolbar-status — connection pill, capture-mode pill, metrics
+    //      (duration · counts · size, with paused badge inline). Always
+    //      mounted; the user gets a single glanceable status line.
+    //   2. #toolbar-controls — pre-session Start, or active-session
+    //      Pause + contextual paused exits (Download / Clear / End).
+    //
+    // The empty-state hint sits beneath the controls row pre-session.
+
+    const statusRow = el("div", { id: "toolbar-status", class: "toolbar-status-row" });
 
     // Always: connection status badge — surfaces attach state across
     // every session phase so Download/End is never silently shipping
     // to a listener the user has forgotten about.
-    toolbar.appendChild(handoffStatusBadge);
+    statusRow.appendChild(handoffStatusBadge);
 
     // Feature #16: capture-mode indicator pill — mounted only during
     // a running/paused session.
     if (model.piiIndicator) {
       setCaptureModePillText(captureModePill, selectedPiiMode);
-      toolbar.appendChild(captureModePill);
+      statusRow.appendChild(captureModePill);
     }
 
     // Always: metrics row.
-    if (model.metrics) toolbar.appendChild(metricsRow);
+    if (model.metrics) statusRow.appendChild(metricsRow);
 
     // Paused badge — structurally add/remove from metricsRow (hide-not-disable).
     if (model.pausedBadge) {
@@ -1100,8 +1111,7 @@ export async function mountSidePanel(
       }
     }
 
-    // Empty-state hint (pre-session, no residual).
-    if (model.emptyStateHint) toolbar.appendChild(emptyStateHint);
+    toolbar.appendChild(statusRow);
 
     // Pause button icon + label swap. Uses replaceChildren on the icon
     // span so the SVG node is swapped atomically.
@@ -1117,25 +1127,25 @@ export async function mountSidePanel(
       pauseBtn.classList.remove("primary");
     }
 
-    // Feature-17 lifecycle row: Pause + contextual paused-state exits
-    // (Download / Clear / End). The order is Pause first, then the
-    // ship/clear/end exits in the order specified by the roadmap:
-    //   Resume → Download → Clear → End.
-    if (model.pause || model.download || model.clear || model.end) {
-      const lifecycleRow = el("div", { class: "sp-row" });
-      if (model.pause) lifecycleRow.appendChild(pauseBtn);
-      if (model.download) lifecycleRow.appendChild(downloadBtn);
-      if (model.clear) lifecycleRow.appendChild(clearBtn);
-      if (model.end) lifecycleRow.appendChild(endBtn);
-      toolbar.appendChild(lifecycleRow);
+    // Controls row: Start (pre-session) OR Pause + contextual paused
+    // exits (Download / Clear / End) — order: Resume → Download → Clear → End.
+    // Mounted whenever any control is visible; absent when nothing is
+    // showing so it doesn't add a stray empty row pre-session-with-no-Start
+    // (impossible in practice but kept tidy).
+    if (model.start || model.pause || model.download || model.clear || model.end) {
+      const controlsRow = el("div", { id: "toolbar-controls", class: "toolbar-controls-row sp-row" });
+      if (model.start) controlsRow.appendChild(startBtn);
+      if (model.pause) controlsRow.appendChild(pauseBtn);
+      if (model.download) controlsRow.appendChild(downloadBtn);
+      if (model.clear) controlsRow.appendChild(clearBtn);
+      if (model.end) controlsRow.appendChild(endBtn);
+      toolbar.appendChild(controlsRow);
     }
 
-    // Pre-session row: start.
-    if (model.start) {
-      const preSessionRow = el("div", { class: "sp-row" });
-      preSessionRow.appendChild(startBtn);
-      toolbar.appendChild(preSessionRow);
-    }
+    // Empty-state hint (pre-session, no residual) — sits below the
+    // controls row so the Start button is the first focusable element
+    // and the hint reads as supporting copy.
+    if (model.emptyStateHint) toolbar.appendChild(emptyStateHint);
 
     // ── Controls region (annotation area) ───────────────────────────
 
