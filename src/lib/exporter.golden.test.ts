@@ -108,6 +108,54 @@ describe("exportSessionStreaming — golden-file schema regression", () => {
     expect(sessionJson).not.toContain("handoff");
   });
 
+  // ─────────────────────────────────────────────────────────────────
+  // Feature-17 DoD-12 + DoD-13 — byte-identical zip parity between the
+  // Download and End transports, plus schema_version pin.
+  //
+  // End is a transport choice over the existing EXPORT_SESSION path.
+  // Both Download and End source the zip from a single call to
+  // exportSessionStreaming(store, session); the SW then either posts
+  // it or triggers a download. Asserting that two consecutive calls
+  // on the same store produce byte-equal zips pins the determinism
+  // property: any future change that introduces a transport-specific
+  // code path in the exporter would surface here.
+  // ─────────────────────────────────────────────────────────────────
+
+  it("DoD-12 — exportSessionStreaming is deterministic: two consecutive calls produce byte-equal zips", async () => {
+    const store = new FakeSessionStore();
+    const meta: SessionMetadata = {
+      id: "feature-17-byte-parity",
+      tab_id: 1,
+      start_time: "2026-05-03T12:00:00.000Z",
+      end_time: "2026-05-03T12:01:00.000Z",
+      duration_ms: 60000,
+      initial_url: "https://example.com",
+      user_agent: "Test",
+      viewport: { width: 100, height: 100 },
+      pii_mode: "full",
+      status: "stopped",
+    };
+    await store.createSession(meta);
+    await store.appendEvent({
+      type: "console_error",
+      level: "error",
+      message: "boom",
+      timestamp: "2026-05-03T12:00:30.000Z",
+      page_url: "https://example.com/",
+    } as unknown as TimelineEventInput);
+    await store.appendScreenshot("ss_parity_1", new Uint8Array([7, 8, 9]));
+
+    const zipA = await exportSessionStreaming(store, meta);
+    const zipB = await exportSessionStreaming(store, meta);
+
+    expect(zipA.length).toBe(zipB.length);
+    expect(Array.from(zipA)).toEqual(Array.from(zipB));
+  });
+
+  it("DoD-13 — SCHEMA_VERSION constant is unchanged at 1.2.0 (regression pin)", () => {
+    expect(SCHEMA_VERSION).toBe("1.2.0");
+  });
+
   it("strips tab_id from the exported session (defence against regression)", async () => {
     const store = new FakeSessionStore();
     const meta: SessionMetadata = {
