@@ -1,0 +1,16 @@
+{
+  "name": "verify-after-subagent",
+  "description": "Run type checking and tests after sub-agents complete implementation work",
+  "hooks": [
+    {
+      "event": "SubagentStop",
+      "type": "prompt",
+      "prompt": "A sub-agent just completed. Before proceeding:\n\n1. Run `npx tsc --noEmit` to verify no type errors were introduced\n2. If type errors exist in test files, the sub-agent likely modified types without updating test fixtures\n3. Report any errors found so they can be fixed before continuing\n\nThis verification prevents broken builds from accumulating across parallel agents.",
+      "triggers": [
+        {
+          "agentNamePattern": ".*architect.*|.*general-purpose.*"
+        }
+      ]
+    }
+  ]
+}

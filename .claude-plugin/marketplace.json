@@ -1,0 +1,16 @@
+{
+  "name": "deskcheck-plugins",
+  "owner": { "name": "patrick" },
+  "plugins": [
+    {
+      "name": "roadmap-orchestrator",
+      "source": "./plugins/roadmap-orchestrator",
+      "description": "Autonomous multi-agent orchestrator with three-plan competition (Speed/Quality/Safety), optional Agent Teams for parallel implementation, automated validation gate, and autopilot dispatcher."
+    },
+    {
+      "name": "testing",
+      "source": "./plugins/testing",
+      "description": "Test generation and browser automation for any codebase. Includes test-writer agent with Playwright CLI integration for unit, integration, and E2E testing."
+    }
+  ]
+}

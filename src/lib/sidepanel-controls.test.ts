@@ -102,16 +102,57 @@ describe("buildControlsModel — reset visibility", () => {
 
 describe("buildControlsModel — always-on regions", () => {
   for (const status of STATES) {
-    it(`always shows PII mode fieldset in ${status}`, () => {
-      expect(buildControlsModel({ status, hasResidualState: false }).piiMode).toBe(true);
-      expect(buildControlsModel({ status, hasResidualState: true }).piiMode).toBe(true);
-    });
-
     it(`always shows metrics row in ${status}`, () => {
       expect(buildControlsModel({ status, hasResidualState: false }).metrics).toBe(true);
       expect(buildControlsModel({ status, hasResidualState: true }).metrics).toBe(true);
     });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Feature #16 acceptance — PII fieldset is hidden during active session,
+// replaced by a non-interactive capture-mode indicator pill.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("feature-16: PII fieldset visibility per status", () => {
+  for (const status of ["idle", "stopped"] as const) {
+    it(`shows piiMode fieldset in ${status}`, () => {
+      expect(buildControlsModel({ status, hasResidualState: false }).piiMode).toBe(true);
+      expect(buildControlsModel({ status, hasResidualState: true }).piiMode).toBe(true);
+    });
+  }
+
+  for (const status of ["running", "paused"] as const) {
+    it(`hides piiMode fieldset in ${status} (frozen at start)`, () => {
+      expect(buildControlsModel({ status, hasResidualState: false }).piiMode).toBe(false);
+      expect(buildControlsModel({ status, hasResidualState: true }).piiMode).toBe(false);
+    });
+  }
+});
+
+describe("feature-16: piiIndicator pill visibility per status", () => {
+  for (const status of ["idle", "stopped"] as const) {
+    it(`hides piiIndicator pill in ${status}`, () => {
+      expect(buildControlsModel({ status, hasResidualState: false }).piiIndicator).toBe(false);
+      expect(buildControlsModel({ status, hasResidualState: true }).piiIndicator).toBe(false);
+    });
+  }
+
+  for (const status of ["running", "paused"] as const) {
+    it(`shows piiIndicator pill in ${status}`, () => {
+      expect(buildControlsModel({ status, hasResidualState: false }).piiIndicator).toBe(true);
+      expect(buildControlsModel({ status, hasResidualState: true }).piiIndicator).toBe(true);
+    });
+  }
+
+  it("piiMode and piiIndicator are mutually exclusive across all states", () => {
+    for (const status of STATES) {
+      for (const hasResidualState of [false, true]) {
+        const m = buildControlsModel({ status, hasResidualState });
+        expect(m.piiMode).toBe(!m.piiIndicator);
+      }
+    }
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────

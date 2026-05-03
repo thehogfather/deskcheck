@@ -1,0 +1,16 @@
+{
+  "name": "testing",
+  "version": "2.0.0",
+  "description": "Test generation and browser automation for any codebase. Includes test-writer agent with Playwright CLI integration for unit, integration, and E2E testing.",
+  "author": {
+    "name": "patrick"
+  },
+  "keywords": [
+    "testing",
+    "test-generation",
+    "quality",
+    "browser-testing",
+    "e2e",
+    "playwright"
+  ]
+}

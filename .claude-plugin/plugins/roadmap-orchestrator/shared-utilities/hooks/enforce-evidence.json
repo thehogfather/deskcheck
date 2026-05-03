@@ -1,0 +1,31 @@
+{
+  "name": "enforce-evidence",
+  "description": "Remind to collect evidence when marking features complete",
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "type": "prompt",
+      "triggers": [
+        {
+          "toolName": "Edit",
+          "inputContains": "[x]"
+        },
+        {
+          "toolName": "Write",
+          "inputContains": "status: complete"
+        },
+        {
+          "toolName": "Write",
+          "inputContains": "validation_gate"
+        }
+      ],
+      "rules": [
+        {
+          "if": "always",
+          "then": "passthrough"
+        }
+      ],
+      "message": "Before marking work complete, verify evidence is collected:\n\n```bash\n# Validate evidence exists\npython3 ~/.claude/plugins/local/shared-utilities/scripts/evidence_ops.py validate <feature-id>\n```\n\nRequired evidence:\n- `test-results.md` - Actual test output (not template)\n- `validation.md` - DoD verification (filled in)\n- `screenshots/` - Playwright captures (if UI work)"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "suggest-roadmap-utility",
+  "description": "Suggest using roadmap_ops.py instead of ad-hoc grep/awk/sed commands for roadmap operations",
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "type": "prompt",
+      "triggers": [
+        {
+          "toolName": "Bash",
+          "inputMatches": "grep.*(roadmap|### Feature|\\[x\\]|\\[ \\])"
+        },
+        {
+          "toolName": "Bash",
+          "inputMatches": "awk.*(roadmap|Feature|Definition)"
+        },
+        {
+          "toolName": "Bash",
+          "inputMatches": "sed.*(\\[x\\]|\\[ \\]|roadmap)"
+        }
+      ],
+      "rules": [
+        {
+          "if": "always",
+          "then": "warn"
+        }
+      ],
+      "message": "Consider using the standardized roadmap utility instead of ad-hoc commands:\n\n```bash\n# Find a feature\npython3 ~/.claude/plugins/local/shared-utilities/scripts/roadmap_ops.py find-feature ./roadmap.md <feature-id>\n\n# Update a checkbox\npython3 ~/.claude/plugins/local/shared-utilities/scripts/roadmap_ops.py update-checkbox ./roadmap.md \"<task text>\" done\n\n# Calculate progress\npython3 ~/.claude/plugins/local/shared-utilities/scripts/roadmap_ops.py calculate-progress ./roadmap.md\n```\n\nThis ensures consistent parsing and easier maintenance."
+    }
+  ]
+}

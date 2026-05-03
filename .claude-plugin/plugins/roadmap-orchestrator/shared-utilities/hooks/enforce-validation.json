@@ -1,0 +1,27 @@
+{
+  "name": "enforce-validation",
+  "description": "Ensure type check, tests, and lint pass before git commits. Uses validation_ops.py for comprehensive validation.",
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "type": "prompt",
+      "triggers": [
+        {
+          "toolName": "Bash",
+          "inputContains": "git commit"
+        },
+        {
+          "toolName": "Bash",
+          "inputContains": "git push"
+        }
+      ],
+      "rules": [
+        {
+          "if": "always",
+          "then": "passthrough"
+        }
+      ],
+      "message": "Before committing, ensure all validations pass:\n\n```bash\npython3 ~/.claude/plugins/local/shared-utilities/scripts/validation_ops.py full-check\n```\n\nIf any checks fail, fix the issues before committing."
+    }
+  ]
+}

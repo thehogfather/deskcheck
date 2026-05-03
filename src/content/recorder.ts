@@ -17,6 +17,13 @@ export function startRecording(
   onEvent: EventCallback,
   opts: RecorderOptions = { piiMode: DEFAULT_PII_MODE },
 ): () => void {
+  // Feature #16: capture the PII mode ONCE at session start. The
+  // recorder must never re-read this value mid-session — not from the
+  // opts object, not from chrome.storage, not from any external source.
+  // Mutating opts.piiMode after this line cannot change recorder
+  // behaviour. The export's privacy contract depends on this freeze.
+  const piiMode: PiiCaptureMode = opts.piiMode;
+
   const pageUrl = () => location.href;
   const now = () => new Date().toISOString();
   const cleanups: (() => void)[] = [];
@@ -54,11 +61,11 @@ export function startRecording(
   const INPUT_DEBOUNCE = 800;
   const inputTimers = new Map<EventTarget, ReturnType<typeof setTimeout>>();
 
-  if (opts.piiMode !== "none") {
+  if (piiMode !== "none") {
     const emitInput = (
       target: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
     ) => {
-      const payload = capturePayloadForMode(target, opts.piiMode);
+      const payload = capturePayloadForMode(target, piiMode);
       onEvent({
         timestamp: now(),
         type: "interaction",

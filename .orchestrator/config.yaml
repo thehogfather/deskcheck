@@ -1,0 +1,10 @@
+# Roadmap orchestrator config (autopilot, etc.).
+# Defaults match fabrick. Knobs below switch on the feature-numbered roadmap
+# convention used by docs/roadmap.md (### 1. Title + feature-N claim ids).
+
+MAX_PARALLEL_SESSIONS: 2
+MAX_PHASE_FAILURES: 3
+
+# Feature-numbered conventions
+FEATURE_ID_PREFIX: 'feature-'
+PRIORITY_SECTIONS: 'Priority: Now'

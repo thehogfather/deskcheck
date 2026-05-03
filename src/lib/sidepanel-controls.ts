@@ -19,8 +19,20 @@ import {
 export interface ControlVisibility {
   /** Start button — shown pre-session (idle/stopped). */
   start: boolean;
-  /** PII mode fieldset — always shown. */
+  /**
+   * PII mode fieldset — shown ONLY pre-session (idle/stopped). The
+   * mode is frozen at session start (feature #16); during running and
+   * paused states the fieldset is removed from the DOM and replaced by
+   * the non-interactive `piiIndicator` pill. Hide-not-disable.
+   */
   piiMode: boolean;
+  /**
+   * Capture-mode indicator pill — shown ONLY during an active session
+   * (running/paused). Decorative read-only affordance that surfaces the
+   * frozen PII mode without offering interaction. Mutually exclusive
+   * with `piiMode` — exactly one of the two is true at any time.
+   */
+  piiIndicator: boolean;
   /** Metrics row (duration, counts, size) — always shown. */
   metrics: boolean;
   /** Empty-state hint — shown pre-session. */
@@ -69,7 +81,11 @@ export function buildControlsModel(
 
   return {
     start: preSession,
-    piiMode: true,
+    // Feature #16: hide selector during running/paused (mode is frozen
+    // at start). Pre-session shows the picker; during a session the
+    // piiIndicator pill takes over.
+    piiMode: preSession,
+    piiIndicator: !preSession,
     metrics: true,
     emptyStateHint: preSession && !hasResidualState,
     annotation: lifecycleVisible,

@@ -1,0 +1,32 @@
+{
+  "name": "block-commit-on-lint-errors",
+  "description": "Prevents git commits when ESLint errors are present",
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "type": "command",
+      "command": "npm run lint 2>&1 || echo 'LINT_FAILED'",
+      "timeout": 30000,
+      "triggers": [
+        {
+          "toolName": "Bash",
+          "inputContains": "git commit"
+        }
+      ],
+      "rules": [
+        {
+          "if": "outputContains",
+          "value": "LINT_FAILED",
+          "then": "block",
+          "message": "🚫 Commit blocked: ESLint errors detected.\n\nRun `npm run lint` to see errors and fix them before committing."
+        },
+        {
+          "if": "outputContains",
+          "value": "problems",
+          "then": "block",
+          "message": "🚫 Commit blocked: ESLint errors detected.\n\nRun `npm run lint` to see errors and fix them before committing."
+        }
+      ]
+    }
+  ]
+}
