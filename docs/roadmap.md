@@ -193,18 +193,18 @@ status: draft
   - **Clear is destructive and confirmed.** Like today's Discard, Clear shows a confirmation dialog naming the concrete data at risk ("Delete N events and M screenshots? This cannot be undone.") and only proceeds on explicit confirmation.
   - **Download / Clear / End visibility is reactive.** Their presence depends on (a) whether the timeline is non-empty and (b) whether a listener is attached. Both must update live as the user pauses / attaches / detaches without re-mounting the panel.
   - **No verb collisions.** Today's Discard and Reset are removed from the surface — they don't reappear under different names mid-session. Their post-session "clear residual state" role is covered by Clear from the paused state.
-- **Definition of done**:
-  - [ ] Pre-session shows exactly: Start, PII mode picker (feature #16), and the connection-status pill. No Reset, no residual-state controls
-  - [ ] Active (running) session shows exactly: Pause, plus the annotation/picker controls and the capture-mode indicator from feature #16
-  - [ ] Paused session shows exactly: Resume, plus Download/Clear (only when timeline has events), plus End (only when a listener is attached)
-  - [ ] Empty paused session (no events captured) shows only Resume — Download and Clear are absent from the DOM (hide-not-disable)
-  - [ ] Attaching a listener while paused adds the End button live; detaching removes it live — no panel re-mount required
-  - [ ] Clear shows a destructive confirmation dialog matching today's Discard dialog copy and behaviour, including the cancel path
-  - [ ] End triggers the same handoff POST path as today's Stop-with-listener-attached, with the same byte-identical zip payload, and exits the session to the pre-session state on success
-  - [ ] Existing `Stop`, `Discard`, and `Reset` button ids are removed from the DOM. Tests that reference them are migrated to the new ids (`download-btn`, `clear-btn`, `end-btn`)
-  - [ ] Unit tests cover: each paused-state visibility combination (empty / non-empty × attached / detached), the live update when listener attaches mid-pause, Clear destructive confirmation cancel path, End → handoff POST round-trip
-  - [ ] E2E test: Start (full mode) → type into an input → Pause → confirm Download appears → Download → exported zip contains the typed input event
-  - [ ] E2E test: Start → Pause (no events captured) → confirm only Resume is visible → Resume → type → Pause → confirm Download/Clear appear
+- **Definition of done** *(Implemented — 2026-05-03)*:
+  - [x] Pre-session shows exactly: Start, PII mode picker (feature #16), and the connection-status pill. No Reset, no residual-state controls
+  - [x] Active (running) session shows exactly: Pause, plus the annotation/picker controls and the capture-mode indicator from feature #16
+  - [x] Paused session shows exactly: Resume, plus Download/Clear (only when timeline has events), plus End (only when a listener is attached)
+  - [x] Empty paused session (no events captured) shows only Resume — Download and Clear are absent from the DOM (hide-not-disable)
+  - [x] Attaching a listener while paused adds the End button live; detaching removes it live — no panel re-mount required
+  - [x] Clear shows a destructive confirmation dialog matching today's Discard dialog copy and behaviour, including the cancel path
+  - [x] End triggers the same handoff POST path as today's Stop-with-listener-attached, with the same byte-identical zip payload, and exits the session to the pre-session state on success
+  - [x] Existing `Stop`, `Discard`, and `Reset` button ids are removed from the DOM. Tests that reference them are migrated to the new ids (`download-btn`, `clear-btn`, `end-btn`)
+  - [x] Unit tests cover: each paused-state visibility combination (empty / non-empty × attached / detached), the live update when listener attaches mid-pause, Clear destructive confirmation cancel path, End → handoff POST round-trip
+  - [x] E2E test: Start (full mode) → type into an input → Pause → confirm Download appears → Download → exported zip contains the typed input event (`e2e/sidepanel-lifecycle-feature17.spec.ts` DoD-10)
+  - [x] E2E test: Start → Pause (no events captured) → confirm only Resume is visible → Resume → type → Pause → confirm Download/Clear appear (`e2e/sidepanel-lifecycle-feature17.spec.ts` DoD-11)
 
 ---
 
