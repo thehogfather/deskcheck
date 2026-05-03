@@ -240,10 +240,14 @@ describe("controls region contents (matrix #14)", () => {
     expect(h.deps.root.querySelector("#metrics-row")).not.toBeNull();
     expect(h.deps.root.querySelector("#empty-state-hint")).not.toBeNull();
     // And absent (hide-not-disable — no display:none):
+    // Feature-17: legacy stop/discard/reset are gone; the new
+    // download/clear/end exits live in paused state and are not
+    // present pre-session either.
     const hiddenPreSession = [
       "pause-btn",
-      "stop-btn",
-      "discard-btn",
+      "download-btn",
+      "clear-btn",
+      "end-btn",
       "pick-element-btn",
       "annotation-text",
       "add-note-btn",
@@ -263,12 +267,10 @@ describe("controls region contents (matrix #14)", () => {
     h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
 
-    // Updated for feature-16: the PII fieldset is REMOVED from the DOM
-    // during a running session and replaced by the capture-mode pill.
+    // Feature-17: running state shows ONLY Pause as a lifecycle verb.
+    // Download/Clear/End live in paused state and are absent here.
     const required = [
       "pause-btn",
-      "stop-btn",
-      "discard-btn",
       "pick-element-btn",
       "annotation-text",
       "add-note-btn",
@@ -279,8 +281,12 @@ describe("controls region contents (matrix #14)", () => {
     }
     // Start is hidden once a session is active.
     expect(h.deps.root.querySelector("#start-btn")).toBeNull();
-    // PII mode fieldset must be absent (hide-not-disable) during active session.
+    // Feature-16: PII mode fieldset must be absent during active session.
     expect(h.deps.root.querySelector("#pii-mode-fieldset")).toBeNull();
+    // Feature-17: legacy lifecycle verbs are gone.
+    expect(h.deps.root.querySelector("#download-btn")).toBeNull();
+    expect(h.deps.root.querySelector("#clear-btn")).toBeNull();
+    expect(h.deps.root.querySelector("#end-btn")).toBeNull();
   });
 });
 
@@ -612,14 +618,18 @@ describe("pause and resume", () => {
 // Pre-export reminder
 // ─────────────────────────────────────────────────────────────────────
 
-describe("pre-export reminder", () => {
-  it("clicking stop in active session opens the reminder, NOT STOP_SESSION", async () => {
+describe("pre-export reminder (feature-17: pause-first)", () => {
+  it("clicking #download-btn in paused state opens the reminder, NOT STOP_SESSION", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     await mountSidePanel(h.deps);
     h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
+    // Pause to surface the Download exit.
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
 
-    h.deps.root.querySelector<HTMLButtonElement>("#stop-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#download-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
 
     const reminder = h.deps.root.querySelector("#pre-export-reminder")!;
@@ -629,10 +639,13 @@ describe("pre-export reminder", () => {
 
   it("'Keep recording' dismisses the reminder without stopping", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     await mountSidePanel(h.deps);
     h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
-    h.deps.root.querySelector<HTMLButtonElement>("#stop-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#download-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
 
     h.deps.root.querySelector<HTMLButtonElement>("#keep-recording-btn")!.click();
@@ -643,22 +656,26 @@ describe("pre-export reminder", () => {
     expect(h.sent.map((m) => m.type)).not.toContain("STOP_SESSION");
   });
 
-  it("'Download' triggers STOP_SESSION + EXPORT_SESSION and hides the reminder", async () => {
+  it("'Download' confirm triggers STOP_SESSION + EXPORT_SESSION and hides the reminder", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     await mountSidePanel(h.deps);
     h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
-    h.deps.root.querySelector<HTMLButtonElement>("#stop-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#download-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
 
-    h.deps.root.querySelector<HTMLButtonElement>("#download-btn")!.click();
+    // Feature-17: the reminder confirm button id is #confirm-export-btn
+    // (renamed from #download-btn to fix the latent id collision with
+    // the new toolbar Download button).
+    h.deps.root.querySelector<HTMLButtonElement>("#confirm-export-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
 
     const types = h.sent.map((m) => m.type);
     expect(types).toContain("STOP_SESSION");
     expect(types).toContain("EXPORT_SESSION");
-    // After download + idle transition, the reminder is removed from
-    // the DOM entirely (hide-not-disable).
     const reminder = h.deps.root.querySelector("#pre-export-reminder");
     expect(reminder).toBeNull();
   });
@@ -748,13 +765,16 @@ describe("feature-11 gated controls: pre-session state", () => {
   it("hides annotation, picker, and lifecycle controls pre-session", async () => {
     const h = makeHarness();
     await mountSidePanel(h.deps);
+    // Feature-17: legacy stop/discard/reset are gone. Pre-session also
+    // hides the new download/clear/end exits.
     const absent = [
       "annotation-text",
       "add-note-btn",
       "pick-element-btn",
       "pause-btn",
-      "stop-btn",
-      "discard-btn",
+      "download-btn",
+      "clear-btn",
+      "end-btn",
     ];
     for (const id of absent) {
       expect(h.deps.root.querySelector(`#${id}`)).toBeNull();
@@ -771,34 +791,35 @@ describe("feature-11 gated controls: pre-session state", () => {
 });
 
 describe("feature-11 gated controls: on start, controls appear", () => {
-  it("clicking Start reveals annotation + lifecycle controls", async () => {
+  it("clicking Start reveals annotation + Pause (the only running-state lifecycle verb)", async () => {
     const h = makeHarness();
     await mountSidePanel(h.deps);
     await startSession(h);
+    // Feature-17: running state shows ONLY Pause. Download/Clear/End
+    // appear in paused state and are absent here.
     const revealed = [
       "annotation-text",
       "add-note-btn",
       "pick-element-btn",
       "pause-btn",
-      "stop-btn",
-      "discard-btn",
     ];
     for (const id of revealed) {
       expect(h.deps.root.querySelector(`#${id}`)).not.toBeNull();
     }
+    expect(h.deps.root.querySelector("#download-btn")).toBeNull();
+    expect(h.deps.root.querySelector("#clear-btn")).toBeNull();
+    expect(h.deps.root.querySelector("#end-btn")).toBeNull();
     // Empty-state hint disappears once controls are live.
     expect(h.deps.root.querySelector("#empty-state-hint")).toBeNull();
-    // And Start is gone.
     expect(h.deps.root.querySelector("#start-btn")).toBeNull();
   });
 });
 
 describe("feature-11 gated controls: on session-end, form returns to pre-session", () => {
-  it("discard fires a storage change that flips the panel back to idle", async () => {
+  it("clearing the session storage flips the panel back to idle (no lifecycle exits remain)", async () => {
     const h = makeHarness();
     await mountSidePanel(h.deps);
     await startSession(h);
-    // Simulate the SW clearing storage after discard.
     h.fireStorage({
       deskcheck_session: {
         oldValue: { id: "s1", end_time: null, status: "running" },
@@ -806,10 +827,11 @@ describe("feature-11 gated controls: on session-end, form returns to pre-session
       },
     });
     await new Promise((r) => setTimeout(r, 0));
-    // Interaction controls are absent again.
     expect(h.deps.root.querySelector("#annotation-text")).toBeNull();
     expect(h.deps.root.querySelector("#pause-btn")).toBeNull();
-    expect(h.deps.root.querySelector("#discard-btn")).toBeNull();
+    expect(h.deps.root.querySelector("#download-btn")).toBeNull();
+    expect(h.deps.root.querySelector("#clear-btn")).toBeNull();
+    expect(h.deps.root.querySelector("#end-btn")).toBeNull();
     expect(h.deps.root.querySelector("#start-btn")).not.toBeNull();
     expect(h.deps.root.querySelector("#empty-state-hint")).not.toBeNull();
   });
@@ -840,21 +862,29 @@ describe("feature-11 loading feedback", () => {
     expect(addBtn.querySelector(".btn-label")!.textContent).toBe("Add");
   });
 
-  it("Download shows a loading state while export is in flight", async () => {
+  it("Download confirm shows a loading state while export is in flight", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     h.setSlow("EXPORT_SESSION", 30);
     await mountSidePanel(h.deps);
     await startSession(h);
-    h.deps.root.querySelector<HTMLButtonElement>("#stop-btn")!.click();
+    // Feature-17: pause first, then click toolbar Download to open the
+    // reminder, then click the reminder confirm.
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
-    const dl = h.deps.root.querySelector<HTMLButtonElement>("#download-btn")!;
-    dl.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#download-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const confirmExport = h.deps.root.querySelector<HTMLButtonElement>(
+      "#confirm-export-btn",
+    )!;
+    confirmExport.click();
     await new Promise((r) => setTimeout(r, 5));
-    expect(dl.disabled).toBe(true);
-    expect(dl.textContent).toBe("Exporting…");
+    expect(confirmExport.disabled).toBe(true);
+    expect(confirmExport.textContent).toBe("Exporting…");
     await new Promise((r) => setTimeout(r, 40));
-    expect(dl.disabled).toBe(false);
-    expect(dl.textContent).toBe("Download");
+    // After idle transition, the reminder (and the confirm button) are
+    // unmounted.
+    expect(h.deps.root.querySelector("#confirm-export-btn")).toBeNull();
   });
 
   it("errors land in #async-error and persist until the next success", async () => {
@@ -879,22 +909,32 @@ describe("feature-11 loading feedback", () => {
   });
 });
 
-describe("feature-11 lifecycle controls: pause/resume/stop/discard", () => {
-  it("active session exposes all four lifecycle controls", async () => {
+describe("feature-17 lifecycle controls: pause + paused-state contextual exits", () => {
+  it("running state exposes only Pause as a lifecycle verb", async () => {
     const h = makeHarness();
     await mountSidePanel(h.deps);
     await startSession(h);
     expect(h.deps.root.querySelector("#pause-btn")).not.toBeNull();
-    expect(h.deps.root.querySelector("#stop-btn")).not.toBeNull();
-    expect(h.deps.root.querySelector("#discard-btn")).not.toBeNull();
-    // Reset is NOT a mid-session control.
-    expect(h.deps.root.querySelector("#reset-btn")).toBeNull();
+    expect(h.deps.root.querySelector("#download-btn")).toBeNull();
+    expect(h.deps.root.querySelector("#clear-btn")).toBeNull();
+    expect(h.deps.root.querySelector("#end-btn")).toBeNull();
   });
 
-  it("discard shows a confirmation dialog with counts from a fresh storage read", async () => {
+  it("paused with events: Pause + Download + Clear are visible", async () => {
     const h = makeHarness();
-    // Panel-local in-memory mirror says 0 events, but storage has 7
-    // events and 3 screenshots — the dialog must reflect STORAGE.
+    h.deps.initialEvents = [ev(1)];
+    await mountSidePanel(h.deps);
+    await startSession(h);
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.deps.root.querySelector("#pause-btn")).not.toBeNull();
+    expect(h.deps.root.querySelector("#download-btn")).not.toBeNull();
+    expect(h.deps.root.querySelector("#clear-btn")).not.toBeNull();
+  });
+
+  it("Clear shows a confirmation dialog with counts from a fresh storage read", async () => {
+    const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     h.setStorageSnapshot({
       deskcheck_events: [
         ev(1), ev(2), ev(3), ev(4), ev(5), ev(6), ev(7),
@@ -903,124 +943,84 @@ describe("feature-11 lifecycle controls: pause/resume/stop/discard", () => {
     });
     await mountSidePanel(h.deps);
     await startSession(h);
-    h.deps.root.querySelector<HTMLButtonElement>("#discard-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
-    const dialog = h.deps.root.querySelector("#discard-confirm-dialog")!;
+    h.deps.root.querySelector<HTMLButtonElement>("#clear-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const dialog = h.deps.root.querySelector("#clear-confirm-dialog")!;
     expect(dialog.classList.contains("hidden")).toBe(false);
-    const detail = dialog.querySelector("#discard-detail")!;
+    const detail = dialog.querySelector("#clear-detail")!;
     expect(detail.textContent).toContain("7 events");
     expect(detail.textContent).toContain("3 screenshots");
   });
 
-  it("cancel makes ZERO storage writes (spy on sendMessage for DISCARD_SESSION)", async () => {
+  it("Cancel makes ZERO storage writes (spy on sendMessage for DISCARD_SESSION)", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     h.setStorageSnapshot({
       deskcheck_events: [ev(1)],
       deskcheck_screenshots: {},
     });
     await mountSidePanel(h.deps);
     await startSession(h);
-    h.deps.root.querySelector<HTMLButtonElement>("#discard-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#clear-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
     const sentBefore = h.sent.length;
-    h.deps.root.querySelector<HTMLButtonElement>("#cancel-discard-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#cancel-clear-btn")!.click();
     await new Promise((r) => setTimeout(r, 10));
-    const sentAfter = h.sent.length;
-    // No DISCARD_SESSION (or any new message) sent.
-    expect(sentAfter).toBe(sentBefore);
+    expect(h.sent.length).toBe(sentBefore);
     expect(h.sent.map((m) => m.type)).not.toContain("DISCARD_SESSION");
-    // And the dialog is hidden.
-    const dialog = h.deps.root.querySelector("#discard-confirm-dialog")!;
+    const dialog = h.deps.root.querySelector("#clear-confirm-dialog")!;
     expect(dialog.classList.contains("hidden")).toBe(true);
   });
 
-  it("default focus on the discard dialog goes to Cancel", async () => {
+  it("Default focus on the Clear dialog goes to Cancel", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     h.setStorageSnapshot({ deskcheck_events: [], deskcheck_screenshots: {} });
     await mountSidePanel(h.deps);
     await startSession(h);
-    h.deps.root.querySelector<HTMLButtonElement>("#discard-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(document.activeElement?.id).toBe("cancel-discard-btn");
+    h.deps.root.querySelector<HTMLButtonElement>("#clear-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement?.id).toBe("cancel-clear-btn");
   });
 
-  it("Escape key cancels the discard dialog without sending DISCARD_SESSION", async () => {
+  it("Escape cancels the Clear dialog without sending DISCARD_SESSION", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     h.setStorageSnapshot({ deskcheck_events: [], deskcheck_screenshots: {} });
     await mountSidePanel(h.deps);
     await startSession(h);
-    h.deps.root.querySelector<HTMLButtonElement>("#discard-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#clear-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     await new Promise((r) => setTimeout(r, 0));
-    const dialog = h.deps.root.querySelector("#discard-confirm-dialog")!;
+    const dialog = h.deps.root.querySelector("#clear-confirm-dialog")!;
     expect(dialog.classList.contains("hidden")).toBe(true);
     expect(h.sent.map((m) => m.type)).not.toContain("DISCARD_SESSION");
   });
 
-  it("confirm sends DISCARD_SESSION and returns the panel to idle", async () => {
+  it("Confirm sends DISCARD_SESSION and returns the panel to idle", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     h.setStorageSnapshot({ deskcheck_events: [ev(1)], deskcheck_screenshots: {} });
     await mountSidePanel(h.deps);
     await startSession(h);
-    h.deps.root.querySelector<HTMLButtonElement>("#discard-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
-    h.deps.root.querySelector<HTMLButtonElement>("#confirm-discard-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#clear-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#confirm-clear-btn")!.click();
     await new Promise((r) => setTimeout(r, 20));
     expect(h.sent.map((m) => m.type)).toContain("DISCARD_SESSION");
-    // Panel returns to idle.
     expect(h.deps.root.querySelector("#start-btn")).not.toBeNull();
-    expect(h.deps.root.querySelector("#discard-btn")).toBeNull();
-  });
-});
-
-describe("feature-11 reset", () => {
-  it("reset button is not rendered when idle with no residual state", async () => {
-    const h = makeHarness();
-    await mountSidePanel(h.deps);
-    expect(h.deps.root.querySelector("#reset-btn")).toBeNull();
-  });
-
-  it("reset button is rendered when stopped with residual state", async () => {
-    const h = makeHarness();
-    h.deps.initialEvents = [ev(1), ev(2)];
-    await mountSidePanel(h.deps);
-    // Simulate session ending: end_time set.
-    h.fireStorage({
-      deskcheck_session: {
-        oldValue: { id: "s1", end_time: null, status: "running" },
-        newValue: { id: "s1", end_time: "2026-04-07T12:00:30.000Z", status: "stopped" },
-      },
-    });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(h.deps.root.querySelector("#reset-btn")).not.toBeNull();
-  });
-
-  it("reset is hidden during an active session (Discard is the mid-session action)", async () => {
-    const h = makeHarness();
-    h.deps.initialEvents = [ev(1)];
-    await mountSidePanel(h.deps);
-    await startSession(h);
-    expect(h.deps.root.querySelector("#reset-btn")).toBeNull();
-  });
-
-  it("clicking reset sends RESET_SESSION and returns the panel to idle", async () => {
-    const h = makeHarness();
-    h.deps.initialEvents = [ev(1)];
-    await mountSidePanel(h.deps);
-    h.fireStorage({
-      deskcheck_session: {
-        oldValue: { id: "s1", end_time: null, status: "running" },
-        newValue: { id: "s1", end_time: "2026-04-07T12:00:30.000Z", status: "stopped" },
-      },
-    });
-    await new Promise((r) => setTimeout(r, 0));
-    const resetBtn = h.deps.root.querySelector<HTMLButtonElement>("#reset-btn")!;
-    resetBtn.click();
-    await new Promise((r) => setTimeout(r, 10));
-    expect(h.sent.map((m) => m.type)).toContain("RESET_SESSION");
-    expect(h.deps.root.querySelector("#reset-btn")).toBeNull();
-    expect(h.deps.root.querySelector("#empty-state-hint")).not.toBeNull();
+    expect(h.deps.root.querySelector("#clear-btn")).toBeNull();
   });
 });
 
@@ -1068,12 +1068,15 @@ describe("feature-11 auto-scroll + new-events chip", () => {
   });
 });
 
-describe("feature-11 reset click defensively re-checks state", () => {
-  it("does not send RESET_SESSION when the panel transitions back to running under a stale DOM", async () => {
+describe("feature-17 — Reset is gone from the surface entirely", () => {
+  it("the reset button is never rendered, regardless of storage state", async () => {
     const h = makeHarness();
     h.deps.initialEvents = [ev(1)];
     await mountSidePanel(h.deps);
-    // End the session so Reset is rendered.
+    expect(h.deps.root.querySelector("#reset-btn")).toBeNull();
+
+    // Even after a stopped session with residual events, Reset stays
+    // gone — Clear (in paused state) is the new way to drop residuals.
     h.fireStorage({
       deskcheck_session: {
         oldValue: { id: "s1", end_time: null, status: "running" },
@@ -1081,25 +1084,7 @@ describe("feature-11 reset click defensively re-checks state", () => {
       },
     });
     await new Promise((r) => setTimeout(r, 0));
-    const resetBtn = h.deps.root.querySelector<HTMLButtonElement>("#reset-btn")!;
-    expect(resetBtn).not.toBeNull();
-
-    // Now flip status back to running through a storage event — this
-    // should remove the reset button. But grab a handle before that.
-    h.fireStorage({
-      deskcheck_session: {
-        oldValue: { id: "s1", end_time: "2026-04-07T12:00:30.000Z", status: "stopped" },
-        newValue: { id: "s2", end_time: null, status: "running" },
-      },
-    });
-    await new Promise((r) => setTimeout(r, 0));
-    // The button is gone from the DOM — can't click it. Defensive
-    // re-check is necessary if a race lets a click land; the click
-    // handler refuses when status is not idle/stopped. We verify
-    // the guard by dispatching the click on the detached node.
-    resetBtn.click();
-    await new Promise((r) => setTimeout(r, 10));
-    expect(h.sent.map((m) => m.type)).not.toContain("RESET_SESSION");
+    expect(h.deps.root.querySelector("#reset-btn")).toBeNull();
   });
 });
 
@@ -1145,15 +1130,27 @@ describe("feature-12: lifecycle controls in toolbar", () => {
     expect(toolbar!.querySelector("#start-btn")).not.toBeNull();
   });
 
-  it("active session: pause, stop, discard are inside #toolbar", async () => {
+  it("active running session: pause is inside #toolbar", async () => {
     const h = makeHarness();
     await mountSidePanel(h.deps);
     h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
     const toolbar = h.deps.root.querySelector("#toolbar")!;
     expect(toolbar.querySelector("#pause-btn")).not.toBeNull();
-    expect(toolbar.querySelector("#stop-btn")).not.toBeNull();
-    expect(toolbar.querySelector("#discard-btn")).not.toBeNull();
+  });
+
+  it("paused session with events: pause, download, clear are inside #toolbar", async () => {
+    const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
+    await mountSidePanel(h.deps);
+    h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const toolbar = h.deps.root.querySelector("#toolbar")!;
+    expect(toolbar.querySelector("#pause-btn")).not.toBeNull();
+    expect(toolbar.querySelector("#download-btn")).not.toBeNull();
+    expect(toolbar.querySelector("#clear-btn")).not.toBeNull();
   });
 
   it("active session: lifecycle buttons NOT in #controls", async () => {
@@ -1163,8 +1160,9 @@ describe("feature-12: lifecycle controls in toolbar", () => {
     await new Promise((r) => setTimeout(r, 0));
     const controls = h.deps.root.querySelector("#controls")!;
     expect(controls.querySelector("#pause-btn")).toBeNull();
-    expect(controls.querySelector("#stop-btn")).toBeNull();
-    expect(controls.querySelector("#discard-btn")).toBeNull();
+    expect(controls.querySelector("#download-btn")).toBeNull();
+    expect(controls.querySelector("#clear-btn")).toBeNull();
+    expect(controls.querySelector("#end-btn")).toBeNull();
     expect(controls.querySelector("#start-btn")).toBeNull();
   });
 
@@ -1270,15 +1268,18 @@ describe("feature-12: element picker embedded in annotation wrapper", () => {
 });
 
 describe("feature-12: button icons", () => {
-  it("all buttons have a .btn-icon span during active session", async () => {
+  it("all visible buttons have a .btn-icon span during a paused session with events", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     await mountSidePanel(h.deps);
     h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
     const buttonsWithIcons = [
       "pause-btn",
-      "stop-btn",
-      "discard-btn",
+      "download-btn",
+      "clear-btn",
       "pick-element-btn",
       "add-note-btn",
     ];
@@ -1340,28 +1341,32 @@ describe("feature-12: newEventsChip in events-list", () => {
   });
 });
 
-describe("feature-12: dialogs remain in #controls", () => {
-  it("#pre-export-reminder is inside #controls during active session", async () => {
+describe("feature-12: dialogs remain in #controls (feature-17 verbs)", () => {
+  it("#pre-export-reminder is inside #controls during a paused session", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     await mountSidePanel(h.deps);
     h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
-    // Click stop to show the reminder.
-    h.deps.root.querySelector<HTMLButtonElement>("#stop-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#download-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
     const controls = h.deps.root.querySelector("#controls")!;
     expect(controls.querySelector("#pre-export-reminder")).not.toBeNull();
   });
 
-  it("#discard-confirm-dialog is inside #controls during active session", async () => {
+  it("#clear-confirm-dialog is inside #controls during a paused session", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [ev(1)];
     await mountSidePanel(h.deps);
     h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
-    // Click discard to show the dialog.
-    h.deps.root.querySelector<HTMLButtonElement>("#discard-btn")!.click();
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    h.deps.root.querySelector<HTMLButtonElement>("#clear-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));
     const controls = h.deps.root.querySelector("#controls")!;
-    expect(controls.querySelector("#discard-confirm-dialog")).not.toBeNull();
+    expect(controls.querySelector("#clear-confirm-dialog")).not.toBeNull();
   });
 });

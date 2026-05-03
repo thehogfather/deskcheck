@@ -14,13 +14,31 @@
 // Legacy ids that MUST be absent:
 //   #stop-btn, #discard-btn, #reset-btn
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mountSidePanel, type SidePanelDeps } from "../src/sidepanel/sidepanel";
 import type { Message, TimelineEvent } from "../src/types";
 import {
   setHandoffConfig,
   clearHandoffConfig,
 } from "../src/lib/handoff-store";
+
+function installFakeStorage(): void {
+  const store: Record<string, unknown> = {};
+  const fake = {
+    get: vi.fn().mockImplementation(async (key: string) => {
+      return key in store ? { [key]: store[key] } : {};
+    }),
+    set: vi.fn().mockImplementation(async (items: Record<string, unknown>) => {
+      Object.assign(store, items);
+    }),
+    remove: vi.fn().mockImplementation(async (keys: string | string[]) => {
+      const arr = Array.isArray(keys) ? keys : [keys];
+      for (const k of arr) delete store[k];
+    }),
+  };
+  // @ts-expect-error — install fake chrome global for jsdom
+  globalThis.chrome = { storage: { local: fake } };
+}
 
 type StorageListener = (
   changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
@@ -122,7 +140,13 @@ function makeHarness(initialEvents: TimelineEvent[] = []): Harness {
 
 beforeEach(async () => {
   clearBody();
+  installFakeStorage();
   await clearHandoffConfig().catch(() => {});
+});
+
+afterEach(() => {
+  // @ts-expect-error — clean up chrome global
+  delete globalThis.chrome;
 });
 
 async function startThenPause(deps: SidePanelDeps): Promise<void> {

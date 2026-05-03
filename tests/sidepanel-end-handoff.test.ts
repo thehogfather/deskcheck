@@ -7,13 +7,31 @@
 // touches a separate End-specific SW message. End is purely a transport
 // affordance over the existing handoff path.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mountSidePanel, type SidePanelDeps } from "../src/sidepanel/sidepanel";
 import type { Message, TimelineEvent } from "../src/types";
 import {
   setHandoffConfig,
   clearHandoffConfig,
 } from "../src/lib/handoff-store";
+
+function installFakeStorage(): void {
+  const store: Record<string, unknown> = {};
+  const fake = {
+    get: vi.fn().mockImplementation(async (key: string) => {
+      return key in store ? { [key]: store[key] } : {};
+    }),
+    set: vi.fn().mockImplementation(async (items: Record<string, unknown>) => {
+      Object.assign(store, items);
+    }),
+    remove: vi.fn().mockImplementation(async (keys: string | string[]) => {
+      const arr = Array.isArray(keys) ? keys : [keys];
+      for (const k of arr) delete store[k];
+    }),
+  };
+  // @ts-expect-error — install fake chrome global for jsdom
+  globalThis.chrome = { storage: { local: fake } };
+}
 
 type StorageListener = (
   changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
@@ -25,6 +43,7 @@ type RuntimeListener = (msg: Message) => void;
 interface Harness {
   deps: SidePanelDeps;
   sent: Message[];
+  fireRuntimeMessage: (msg: Message) => void;
 }
 
 function clearBody() {
@@ -98,12 +117,24 @@ function makeHarness(events: TimelineEvent[]): Harness {
     initialPiiMode: "full",
   };
 
-  return { deps, sent };
+  return {
+    deps,
+    sent,
+    fireRuntimeMessage: (msg) => {
+      for (const l of runtimeListeners) l(msg);
+    },
+  };
 }
 
 beforeEach(async () => {
   clearBody();
+  installFakeStorage();
   await clearHandoffConfig().catch(() => {});
+});
+
+afterEach(() => {
+  // @ts-expect-error — clean up chrome global
+  delete globalThis.chrome;
 });
 
 const SAMPLE_EVENT: TimelineEvent = {
@@ -115,16 +146,30 @@ const SAMPLE_EVENT: TimelineEvent = {
   page_url: "https://example.com/",
 } as unknown as TimelineEvent;
 
-async function pauseWithListener(deps: SidePanelDeps): Promise<void> {
+async function pauseWithListener(h: Harness): Promise<void> {
   await setHandoffConfig({
     listener_url: "http://127.0.0.1:54329",
     token:
       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     created_at: "2026-04-12T00:00:00.000Z",
   });
-  deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+  // Broadcast PENDING_HANDOFF_CHANGED so the panel updates its
+  // listenerAttached state — the SW would normally emit this when the
+  // config lands.
+  h.fireRuntimeMessage({
+    type: "PENDING_HANDOFF_CHANGED",
+    pending: null,
+    active: {
+      listener_url: "http://127.0.0.1:54329",
+      token:
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      created_at: "2026-04-12T00:00:00.000Z",
+    },
+  });
   await new Promise((r) => setTimeout(r, 0));
-  deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+  h.deps.root.querySelector<HTMLButtonElement>("#start-btn")!.click();
+  await new Promise((r) => setTimeout(r, 0));
+  h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
   await new Promise((r) => setTimeout(r, 0));
 }
 
@@ -132,7 +177,7 @@ describe("feature-17 DoD-7 — End reuses STOP_SESSION + EXPORT_SESSION", () => 
   it("clicking #end-btn dispatches STOP_SESSION then EXPORT_SESSION (no new message types)", async () => {
     const h = makeHarness([SAMPLE_EVENT]);
     await mountSidePanel(h.deps);
-    await pauseWithListener(h.deps);
+    await pauseWithListener(h);
 
     const endBtn = h.deps.root.querySelector<HTMLButtonElement>("#end-btn");
     expect(endBtn).not.toBeNull();
@@ -154,7 +199,7 @@ describe("feature-17 DoD-7 — End reuses STOP_SESSION + EXPORT_SESSION", () => 
   it("clicking #end-btn does NOT open the pre-export reminder (the listener pill is sufficient signal)", async () => {
     const h = makeHarness([SAMPLE_EVENT]);
     await mountSidePanel(h.deps);
-    await pauseWithListener(h.deps);
+    await pauseWithListener(h);
 
     h.deps.root.querySelector<HTMLButtonElement>("#end-btn")!.click();
     await new Promise((r) => setTimeout(r, 0));

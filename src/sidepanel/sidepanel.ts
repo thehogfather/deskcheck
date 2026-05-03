@@ -22,7 +22,6 @@ import type {
   TimelineEvent,
 } from "../types";
 import type { SessionStatus } from "../lib/session-status";
-import { isResetEligible } from "../lib/session-status";
 import { STORAGE_SESSION } from "../constants";
 import { cropScreenshot } from "../lib/image-utils";
 import { PRIVACY_REMINDER_LINE } from "../lib/privacy";
@@ -53,6 +52,7 @@ import {
 import { SIZE_WARNING_BYTES } from "../constants";
 import {
   buildControlsModel,
+  countMaterialEvents,
   type ControlVisibility,
 } from "../lib/sidepanel-controls";
 import { ScrollAnchor } from "../lib/scroll-anchor";
@@ -64,7 +64,7 @@ import {
   Pause as LucidePause,
   Play as LucidePlay,
   Plus,
-  RotateCcw,
+  Power,
   Trash2,
   X as LucideX,
   type IconNode,
@@ -218,6 +218,10 @@ export async function mountSidePanel(
   let pickerActive = false;
   let windowId: number = -1;
   let scrollDebounce: ReturnType<typeof setTimeout> | null = null;
+  // Feature-17: live listener-attached state. Surfaces the End exit
+  // in paused state without panel re-mount. Updated by the
+  // PENDING_HANDOFF_CHANGED runtime message and on initial mount.
+  let listenerAttached = false;
 
   const scrollAnchor = new ScrollAnchor();
 
@@ -352,7 +356,9 @@ export async function mountSidePanel(
     try {
       await clearHandoffConfig();
       handoffAttachedUrl = null;
+      listenerAttached = false;
       renderHandoffState();
+      applyControlsModel();
       asyncErrorLine.textContent = "";
     } catch (e) {
       asyncErrorLine.textContent = `Failed to clear listener: ${String(e)}`;
@@ -389,7 +395,9 @@ export async function mountSidePanel(
         created_at: new Date().toISOString(),
       });
       handoffAttachedUrl = urlPart;
+      listenerAttached = true;
       renderHandoffState();
+      applyControlsModel();
       asyncErrorLine.textContent = "";
     } catch (e) {
       asyncErrorLine.textContent = `Failed to save listener: ${String(e)}`;
@@ -400,7 +408,9 @@ export async function mountSidePanel(
     try {
       await clearHandoffConfig();
       handoffAttachedUrl = null;
+      listenerAttached = false;
       renderHandoffState();
+      applyControlsModel();
       asyncErrorLine.textContent = "";
     } catch (e) {
       asyncErrorLine.textContent = `Failed to clear listener: ${String(e)}`;
@@ -412,6 +422,7 @@ export async function mountSidePanel(
     const existing = await getHandoffConfig();
     if (existing) {
       handoffAttachedUrl = existing.listener_url;
+      listenerAttached = true;
     }
   } catch {
     // Storage read failure → treat as "not attached"; the user can re-attach.
@@ -434,9 +445,12 @@ export async function mountSidePanel(
 
   const startBtn = iconBtn("start-btn", "sp-btn primary", lucideNode(LucidePlay), "Start session");
   const pauseBtn = iconBtn("pause-btn", "sp-btn", lucideNode(LucidePause), "Pause");
-  const stopBtn = iconBtn("stop-btn", "sp-btn primary", lucideNode(LucideDownload), "Download");
-  const discardBtn = iconBtn("discard-btn", "sp-btn danger", lucideNode(Trash2), "Discard");
-  const resetBtn = iconBtn("reset-btn", "sp-btn", lucideNode(RotateCcw), "Reset");
+  // Feature-17: Stop / Discard / Reset are removed from the surface.
+  // The pause-first lifecycle exposes Download / Clear / End in the
+  // paused state, gated by event count and listener attachment.
+  const downloadBtn = iconBtn("download-btn", "sp-btn primary", lucideNode(LucideDownload), "Download");
+  const clearBtn = iconBtn("clear-btn", "sp-btn danger", lucideNode(Trash2), "Clear");
+  const endBtn = iconBtn("end-btn", "sp-btn primary", lucideNode(Power), "End");
   const pickElementBtn = iconBtn("pick-element-btn", "sp-btn", lucideNode(Crosshair), "select");
 
   const annotationText = el("textarea", {
@@ -468,27 +482,32 @@ export async function mountSidePanel(
   metricsRow.appendChild(metricsSize);
   // pausedBadge is added/removed by applyControlsModel() — not appended here.
 
-  // Pre-export reminder panel — hidden until the user clicks Stop.
+  // Pre-export reminder panel — hidden until the user clicks Download.
+  // The confirm button uses id #confirm-export-btn (NOT #download-btn,
+  // which is now the toolbar Download button — feature-17 fixed the
+  // latent id collision).
   const reminderPanel = el("div", { id: "pre-export-reminder", class: "pre-export-reminder hidden", role: "alertdialog" });
   const reminderText = el("p", { class: "reminder-text" }, [PRIVACY_REMINDER_LINE]);
   const reminderActions = el("div", { class: "sp-row" });
   const keepRecordingBtn = el("button", { id: "keep-recording-btn", class: "sp-btn" }, ["Keep recording"]);
-  const downloadBtn = el("button", { id: "download-btn", class: "sp-btn danger" }, ["Download"]);
+  const confirmExportBtn = el("button", { id: "confirm-export-btn", class: "sp-btn danger" }, ["Download"]);
   reminderActions.appendChild(keepRecordingBtn);
-  reminderActions.appendChild(downloadBtn);
+  reminderActions.appendChild(confirmExportBtn);
   reminderPanel.appendChild(reminderText);
   reminderPanel.appendChild(reminderActions);
 
-  // Discard confirmation dialog.
-  const discardDialog = el("div", { id: "discard-confirm-dialog", class: "pre-export-reminder hidden", role: "alertdialog" });
-  const discardDialogText = el("p", { id: "discard-detail", class: "reminder-text" });
-  const discardDialogActions = el("div", { class: "sp-row" });
-  const cancelDiscardBtn = el("button", { id: "cancel-discard-btn", class: "sp-btn" }, ["Cancel"]);
-  const confirmDiscardBtn = el("button", { id: "confirm-discard-btn", class: "sp-btn danger" }, ["Discard"]);
-  discardDialogActions.appendChild(cancelDiscardBtn);
-  discardDialogActions.appendChild(confirmDiscardBtn);
-  discardDialog.appendChild(discardDialogText);
-  discardDialog.appendChild(discardDialogActions);
+  // Clear confirmation dialog (formerly Discard). The destructive
+  // confirmation copy and Cancel-default-focus behaviour from the
+  // legacy Discard dialog are preserved verbatim.
+  const clearDialog = el("div", { id: "clear-confirm-dialog", class: "pre-export-reminder hidden", role: "alertdialog" });
+  const clearDialogText = el("p", { id: "clear-detail", class: "reminder-text" });
+  const clearDialogActions = el("div", { class: "sp-row" });
+  const cancelClearBtn = el("button", { id: "cancel-clear-btn", class: "sp-btn" }, ["Cancel"]);
+  const confirmClearBtn = el("button", { id: "confirm-clear-btn", class: "sp-btn danger" }, ["Clear"]);
+  clearDialogActions.appendChild(cancelClearBtn);
+  clearDialogActions.appendChild(confirmClearBtn);
+  clearDialog.appendChild(clearDialogText);
+  clearDialog.appendChild(clearDialogActions);
 
   // Async error line — shows the last error from a loading action.
   const asyncErrorLine = el("span", { id: "async-error", class: "async-error" });
@@ -647,8 +666,6 @@ export async function mountSidePanel(
     }
     if (msg.type === "SCREENSHOT_APPENDED") {
       screenshots[msg.id] = msg.dataUrl;
-      // Backfill any already-rendered annotation rows that referenced
-      // this screenshot id before the bytes arrived.
       hydrateThumbsForScreenshot(msg.id, msg.dataUrl);
       return;
     }
@@ -659,6 +676,17 @@ export async function mountSidePanel(
       // confused when the zip lands in Downloads instead of at the
       // attached listener.
       asyncErrorLine.textContent = msg.message;
+      return;
+    }
+    if (msg.type === "PENDING_HANDOFF_CHANGED") {
+      // Feature-17 DoD-5: live listener-attached signal. Surfaces (or
+      // hides) the End exit in paused state without re-mounting the
+      // panel. Triggered by the SW broadcasting attach/detach events.
+      const nextAttached = msg.active != null;
+      if (nextAttached !== listenerAttached) {
+        listenerAttached = nextAttached;
+        applyControlsModel();
+      }
       return;
     }
   };
@@ -688,11 +716,11 @@ export async function mountSidePanel(
   };
   eventsList.addEventListener("scroll", scrollHandler);
 
-  // Escape key handler — closes discard dialog or pre-export reminder.
+  // Escape key handler — closes clear dialog or pre-export reminder.
   const escapeHandler = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
-      if (!discardDialog.classList.contains("hidden")) {
-        hideDiscardDialog();
+      if (!clearDialog.classList.contains("hidden")) {
+        hideClearDialog();
         e.preventDefault();
         return;
       }
@@ -728,8 +756,14 @@ export async function mountSidePanel(
   // Stop opens the reminder; the user must explicitly choose Download
   // (proceed) or Keep recording (cancel). Anti-muscle-memory for a
   // privacy control — initial focus goes to Keep recording.
-  stopBtn.addEventListener("click", () => {
-    if (status !== "running" && status !== "paused") return;
+  // Feature-17: Download is gated by the pre-export reminder. Clicking
+  // the toolbar Download opens the reminder; the user must explicitly
+  // choose Download (proceed) or Keep recording (cancel). Initial focus
+  // is on Keep recording. Download is only visible in `paused` state
+  // with material events, so this handler does not need to gate on
+  // running.
+  downloadBtn.addEventListener("click", () => {
+    if (status !== "paused") return;
     showReminder();
   });
 
@@ -737,10 +771,30 @@ export async function mountSidePanel(
     hideReminder();
   });
 
-  downloadBtn.addEventListener("click", async () => {
+  confirmExportBtn.addEventListener("click", async () => {
     hideReminder();
     try {
-      await withLoadingState(downloadBtn, "Exporting\u2026", async () => {
+      await withLoadingState(confirmExportBtn, "Exporting\u2026", async () => {
+        await sendMessage({ type: "STOP_SESSION" });
+        transitionTo("stopped");
+        await sendMessage({ type: "EXPORT_SESSION" });
+        transitionTo("idle");
+      });
+    } catch {
+      // Non-fatal.
+    }
+  });
+
+  // Feature-17: End \u2014 finalises the session and POSTs to the attached
+  // CLI listener via the same EXPORT_SESSION branch as Download. The
+  // existing handoff branch in service-worker.ts routes to performHandoff
+  // when a handoff config is present, producing a byte-identical zip.
+  // End does NOT open the pre-export reminder \u2014 the connection-status
+  // pill is sufficient signal that the session is going to a listener.
+  endBtn.addEventListener("click", async () => {
+    if (status !== "paused") return;
+    try {
+      await withLoadingState(endBtn, "Ending\u2026", async () => {
         await sendMessage({ type: "STOP_SESSION" });
         transitionTo("stopped");
         await sendMessage({ type: "EXPORT_SESSION" });
@@ -831,13 +885,14 @@ export async function mountSidePanel(
     }
   });
 
-  // Discard button — opens confirmation dialog with fresh counts.
-  discardBtn.addEventListener("click", async () => {
-    if (status !== "running" && status !== "paused") return;
+  // Feature-17: Clear (formerly Discard). Only visible in `paused` state
+  // with material events. Reuses the existing destructive confirmation
+  // dialog and the existing DISCARD_SESSION SW handler — Clear is a
+  // surface rename, not a behavioural change. The post-session "drop
+  // residual state" role that Reset used to cover is now subsumed here.
+  clearBtn.addEventListener("click", async () => {
+    if (status !== "paused") return;
     try {
-      // Fetch fresh counts — use GET_SESSION_METRICS which works with both
-      // chrome.storage.local AND OPFS backends. readStorage is provided for
-      // tests that need to inject specific snapshots.
       let eventCount: number;
       let screenshotCount: number;
       if (deps.readStorage) {
@@ -853,38 +908,21 @@ export async function mountSidePanel(
         eventCount = metrics?.eventCount ?? 0;
         screenshotCount = metrics?.screenshotCount ?? 0;
       }
-      showDiscardDialog(eventCount, screenshotCount);
+      showClearDialog(eventCount, screenshotCount);
     } catch {
       // If we cannot fetch counts, show generic text.
-      showDiscardDialog(events.length, Object.keys(screenshots).length);
+      showClearDialog(events.length, Object.keys(screenshots).length);
     }
   });
 
-  cancelDiscardBtn.addEventListener("click", () => {
-    hideDiscardDialog();
+  cancelClearBtn.addEventListener("click", () => {
+    hideClearDialog();
   });
 
-  confirmDiscardBtn.addEventListener("click", async () => {
-    hideDiscardDialog();
+  confirmClearBtn.addEventListener("click", async () => {
+    hideClearDialog();
     try {
       await sendMessage({ type: "DISCARD_SESSION" });
-      events = [];
-      screenshots = {};
-      scrollAnchor.reset();
-      renderAllEvents();
-      transitionTo("idle");
-    } catch {
-      // Non-fatal.
-    }
-  });
-
-  // Reset button — clears residual state after a stopped session.
-  resetBtn.addEventListener("click", async () => {
-    // Defensive re-check: only Reset if still eligible.
-    if (!isResetEligible(status)) return;
-    if (!hasResidualState()) return;
-    try {
-      await sendMessage({ type: "RESET_SESSION" });
       events = [];
       screenshots = {};
       scrollAnchor.reset();
@@ -1001,7 +1039,7 @@ export async function mountSidePanel(
     status = next;
     if (status === "idle") {
       hideReminder();
-      hideDiscardDialog();
+      hideClearDialog();
       clearSelectedElement();
     }
     applyControlsModel();
@@ -1011,10 +1049,23 @@ export async function mountSidePanel(
     const model: ControlVisibility = buildControlsModel({
       status,
       hasResidualState: hasResidualState(),
+      hasEvents: countMaterialEvents(events) > 0,
+      listenerAttached,
     });
 
-    // Clear both regions and re-mount only the visible children.
-    // This ensures hidden controls are absent from the DOM, not merely
+    // Capture focus before tearing down so we can restore it after the
+    // re-mount. The lifecycle row is rebuilt on every applyControlsModel
+    // call (clearChildren on toolbar + controls), which would otherwise
+    // collapse focus to <body> when the focused button gets detached
+    // mid-attach. The DOM nodes for our buttons are stable constants —
+    // we can re-focus by id.
+    const focusedId =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement.id
+        : "";
+
+    // Clear both regions and re-mount only the visible children. This
+    // ensures hidden controls are absent from the DOM, not merely
     // display:none. The DoD requires querySelector(...) === null for
     // hidden controls.
     clearChildren(toolbar);
@@ -1023,13 +1074,12 @@ export async function mountSidePanel(
     // ── Toolbar region (lifecycle + metrics) ────────────────────────
 
     // Always: connection status badge — surfaces attach state across
-    // every session phase so Stop is never silently shipping to a
-    // listener the user has forgotten about.
+    // every session phase so Download/End is never silently shipping
+    // to a listener the user has forgotten about.
     toolbar.appendChild(handoffStatusBadge);
 
     // Feature #16: capture-mode indicator pill — mounted only during
-    // a running/paused session. Refresh its text from the live session
-    // mode so the user sees what the recording is locked into.
+    // a running/paused session.
     if (model.piiIndicator) {
       setCaptureModePillText(captureModePill, selectedPiiMode);
       toolbar.appendChild(captureModePill);
@@ -1054,8 +1104,7 @@ export async function mountSidePanel(
     if (model.emptyStateHint) toolbar.appendChild(emptyStateHint);
 
     // Pause button icon + label swap. Uses replaceChildren on the icon
-    // span so the SVG node is swapped atomically (textContent= would
-    // clobber the SVG and leave nothing visible).
+    // span so the SVG node is swapped atomically.
     const pauseIcon = pauseBtn.querySelector(".btn-icon");
     const pauseLabel = pauseBtn.querySelector(".btn-label");
     if (status === "paused") {
@@ -1068,20 +1117,23 @@ export async function mountSidePanel(
       pauseBtn.classList.remove("primary");
     }
 
-    // Lifecycle row: pause, stop, discard.
-    if (model.pause || model.stop || model.discard) {
+    // Feature-17 lifecycle row: Pause + contextual paused-state exits
+    // (Download / Clear / End). The order is Pause first, then the
+    // ship/clear/end exits in the order specified by the roadmap:
+    //   Resume → Download → Clear → End.
+    if (model.pause || model.download || model.clear || model.end) {
       const lifecycleRow = el("div", { class: "sp-row" });
       if (model.pause) lifecycleRow.appendChild(pauseBtn);
-      if (model.stop) lifecycleRow.appendChild(stopBtn);
-      if (model.discard) lifecycleRow.appendChild(discardBtn);
+      if (model.download) lifecycleRow.appendChild(downloadBtn);
+      if (model.clear) lifecycleRow.appendChild(clearBtn);
+      if (model.end) lifecycleRow.appendChild(endBtn);
       toolbar.appendChild(lifecycleRow);
     }
 
-    // Pre-session row: start (+reset).
-    if (model.start || model.reset) {
+    // Pre-session row: start.
+    if (model.start) {
       const preSessionRow = el("div", { class: "sp-row" });
-      if (model.start) preSessionRow.appendChild(startBtn);
-      if (model.reset) preSessionRow.appendChild(resetBtn);
+      preSessionRow.appendChild(startBtn);
       toolbar.appendChild(preSessionRow);
     }
 
@@ -1097,7 +1149,6 @@ export async function mountSidePanel(
     if (model.annotation) {
       controls.appendChild(elementChip);
 
-      // Build the annotation wrapper: textarea on top, toolbar row below.
       clearChildren(annotationWrapper);
       annotationWrapper.appendChild(annotationText);
       const annotationToolbar = el("div", { class: "annotation-toolbar" });
@@ -1109,19 +1160,28 @@ export async function mountSidePanel(
       controls.appendChild(annotationWrapper);
     }
 
-    // Reminder panels and error line — stay in controls as intentional
-    // friction for privacy-critical actions.
-    if (model.stop) {
+    // Reminder + clear dialogs — only mounted when their owning button
+    // is mounted, so they never linger after the user transitions out
+    // of paused state.
+    if (model.download) {
       controls.appendChild(reminderPanel);
     }
-    if (model.discard) {
-      controls.appendChild(discardDialog);
+    if (model.clear) {
+      controls.appendChild(clearDialog);
     }
     controls.appendChild(asyncErrorLine);
 
     // newEventsChip lives in the events list (sticky scroll container).
     if (!eventsList.contains(newEventsChip)) {
       eventsList.appendChild(newEventsChip);
+    }
+
+    // Restore focus to the equivalent button by id (the button refs
+    // are stable constants, so re-mounting preserves them). This keeps
+    // keyboard focus on Pause across a live listener attach.
+    if (focusedId) {
+      const target = root.querySelector<HTMLElement>(`#${focusedId}`);
+      target?.focus();
     }
   }
 
@@ -1134,7 +1194,7 @@ export async function mountSidePanel(
     reminderPanel.classList.add("hidden");
   }
 
-  function showDiscardDialog(eventCount: number, screenshotCount: number) {
+  function showClearDialog(eventCount: number, screenshotCount: number) {
     const parts: string[] = [];
     if (eventCount > 0) {
       parts.push(`${eventCount} event${eventCount === 1 ? "" : "s"}`);
@@ -1143,13 +1203,13 @@ export async function mountSidePanel(
       parts.push(`${screenshotCount} screenshot${screenshotCount === 1 ? "" : "s"}`);
     }
     const countText = parts.length > 0 ? parts.join(" and ") : "all session data";
-    discardDialogText.textContent = `Delete ${countText}?`;
-    discardDialog.classList.remove("hidden");
-    cancelDiscardBtn.focus();
+    clearDialogText.textContent = `Delete ${countText}?`;
+    clearDialog.classList.remove("hidden");
+    cancelClearBtn.focus();
   }
 
-  function hideDiscardDialog() {
-    discardDialog.classList.add("hidden");
+  function hideClearDialog() {
+    clearDialog.classList.add("hidden");
   }
 
   function setPickerActive(active: boolean) {

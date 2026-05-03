@@ -20,9 +20,17 @@ const SCAN_DIRS = ["src", "tests", "e2e", "cli"];
 const FORBIDDEN_LITERALS = ["stop-btn", "discard-btn", "reset-btn"];
 
 // Files where these literals are expected (historical references in
-// docs / plans / changelog). Paths relative to the repo root.
+// docs / plans / changelog, plus the migration-guard test itself which
+// must reference the legacy ids to scan for them, plus the feature-17
+// e2e spec which intentionally asserts they're absent post-migration).
+// Paths relative to the repo root.
 const ALLOW_LIST = new Set<string>([
   "tests/sidepanel-no-legacy-ids.test.ts",
+  "e2e/sidepanel-lifecycle-feature17.spec.ts",
+  // Tests that explicitly assert the legacy ids are ABSENT post-migration
+  // legitimately reference the literals.
+  "tests/sidepanel-paused-controls.test.ts",
+  "src/sidepanel/sidepanel.test.ts",
 ]);
 
 function walk(dir: string): string[] {
