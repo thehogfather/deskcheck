@@ -211,5 +211,30 @@ class DepSatisfiedTests(unittest.TestCase):
             self.assertFalse(_dep_satisfied({}, "feature-2", rp, "feature-"))
 
 
+class WorktreeExistsTests(unittest.TestCase):
+    def test_accepts_phase_id_directly(self):
+        # The feature-numbered orchestrator builds .claude/worktrees/<phase_id>
+        # without the redundant feature- prefix.
+        from autopilot import _worktree_exists
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".claude" / "worktrees" / "feature-16").mkdir(parents=True)
+            self.assertTrue(_worktree_exists(repo, "feature-16"))
+
+    def test_accepts_legacy_feature_prefix(self):
+        from autopilot import _worktree_exists
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".claude" / "worktrees" / "feature-0.4").mkdir(parents=True)
+            self.assertTrue(_worktree_exists(repo, "0.4"))
+
+    def test_returns_false_when_missing(self):
+        from autopilot import _worktree_exists
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".claude" / "worktrees").mkdir(parents=True)
+            self.assertFalse(_worktree_exists(repo, "feature-99"))
+
+
 if __name__ == "__main__":
     unittest.main()
