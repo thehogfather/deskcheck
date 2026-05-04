@@ -142,20 +142,24 @@ test.describe("Side panel UI", () => {
     // controls are STRUCTURALLY ABSENT from the DOM pre-session, not
     // toggled via display:none. "Absent from the DOM" is what the DoD
     // requires, so assert not-attached rather than not-visible.
+    // Feature-17: legacy stop/discard/reset are gone; the new
+    // download/clear/end exits live in paused state and are not
+    // present pre-session either.
     for (const id of [
       "annotation-text",
       "add-note-btn",
       "screenshot-btn",
       "pick-element-btn",
       "pause-btn",
-      "stop-btn",
-      "discard-btn",
+      "download-btn",
+      "clear-btn",
+      "end-btn",
     ]) {
       await expect(panel.locator(`#${id}`)).toHaveCount(0);
     }
   });
 
-  test("active state shows Pause/Stop/Discard, hides Start (feature #11)", async ({
+  test("active running state shows only Pause as a lifecycle verb (feature-17)", async ({
     context,
     extensionId,
   }) => {
@@ -165,11 +169,12 @@ test.describe("Side panel UI", () => {
     await startSessionOnTab(context, extensionId, TEST_PAGE);
 
     const panel = await openSidePanelPage(context, extensionId);
-    // Start is absent from the DOM during an active session.
     await expect(panel.locator("#start-btn")).toHaveCount(0);
     await expect(panel.locator("#pause-btn")).toBeVisible();
-    await expect(panel.locator("#stop-btn")).toBeVisible();
-    await expect(panel.locator("#discard-btn")).toBeVisible();
+    // Feature-17: Download/Clear/End live in paused state only.
+    await expect(panel.locator("#download-btn")).toHaveCount(0);
+    await expect(panel.locator("#clear-btn")).toHaveCount(0);
+    await expect(panel.locator("#end-btn")).toHaveCount(0);
     await expect(panel.locator("#annotation-text")).toBeVisible();
 
     await panel.close();
@@ -287,7 +292,7 @@ test.describe("Session lifecycle", () => {
 });
 
 test.describe("Pre-export reminder flow", () => {
-  test("clicking Stop reveals the reminder; Keep recording dismisses it", async ({
+  test("clicking Pause then Download reveals the reminder; Keep recording dismisses it (feature-17)", async ({
     context,
     extensionId,
   }) => {
@@ -295,25 +300,33 @@ test.describe("Pre-export reminder flow", () => {
     await page.goto(TEST_PAGE, { waitUntil: "domcontentloaded" });
 
     await startSessionOnTab(context, extensionId, TEST_PAGE);
+    // Generate at least one event so the Download exit appears.
+    await page.click("h1");
+    await page.waitForTimeout(200);
+    // Pause from the SW directly (the panel's pause handler does the
+    // same — no need to interact via the panel UI for this test).
+    const helperPause = await openSidePanelPage(context, extensionId);
+    await helperPause.evaluate(async () => {
+      await chrome.runtime.sendMessage({ type: "PAUSE_SESSION" });
+    });
+    await helperPause.close();
 
     const panel = await openSidePanelPage(context, extensionId);
-    // Wait for the panel's GET_SESSION_STATE round-trip to land us in
-    // the active state — Stop is hidden until then.
-    await expect(panel.locator("#stop-btn")).toBeVisible();
+    await expect(panel.locator("#download-btn")).toBeVisible();
 
-    await panel.locator("#stop-btn").click();
+    await panel.locator("#download-btn").click();
     await expect(panel.locator("#pre-export-reminder")).not.toHaveClass(
       /\bhidden\b/,
     );
     await expect(panel.locator("#keep-recording-btn")).toBeVisible();
-    await expect(panel.locator("#download-btn")).toBeVisible();
+    await expect(panel.locator("#confirm-export-btn")).toBeVisible();
 
     await panel.locator("#keep-recording-btn").click();
     await expect(panel.locator("#pre-export-reminder")).toHaveClass(
       /\bhidden\b/,
     );
-    // Session is still active after a cancelled stop.
-    await expect(panel.locator("#stop-btn")).toBeVisible();
+    // Session is still paused after a cancelled download.
+    await expect(panel.locator("#download-btn")).toBeVisible();
 
     await panel.close();
     await stopSession(context, extensionId);

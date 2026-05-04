@@ -150,21 +150,32 @@ describe("feature-15: every icon-bearing button has an SVG child with aria-hidde
     expect(svg!.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("active session: every lifecycle/annotation button has an <svg> inside .btn-icon with aria-hidden=true", async () => {
+  it("paused session with events: every visible lifecycle/annotation button has an <svg> inside .btn-icon with aria-hidden=true", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [{
+      seq: 1,
+      type: "console_error",
+      level: "error",
+      message: "boom",
+      timestamp: "2026-04-12T00:00:00.000Z",
+      page_url: "https://example.com/",
+    } as unknown as TimelineEvent];
     await mountSidePanel(h.deps);
     await startSession(h);
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
 
+    // Feature-17: legacy stop/discard ids replaced by download/clear.
     const buttonsWithIcons = [
       "pause-btn",
-      "stop-btn",
-      "discard-btn",
+      "download-btn",
+      "clear-btn",
       "pick-element-btn",
       "add-note-btn",
     ];
     for (const id of buttonsWithIcons) {
       const btn = h.deps.root.querySelector<HTMLButtonElement>(`#${id}`);
-      expect(btn, `#${id} must be in DOM after start`).not.toBeNull();
+      expect(btn, `#${id} must be in DOM after pause`).not.toBeNull();
       const svg = btn!.querySelector(".btn-icon svg");
       expect(svg, `#${id} must have an <svg> child inside .btn-icon`).not.toBeNull();
       expect(
@@ -198,21 +209,33 @@ describe("feature-15: button accessible name comes from .btn-label only", () => 
     expect(btn.querySelector(".btn-label")!.textContent).toBe("Start session");
   });
 
-  it("active session: every button's .btn-label text matches the expected label", async () => {
+  it("paused session with events: every visible button's .btn-label text matches the expected label", async () => {
     const h = makeHarness();
+    h.deps.initialEvents = [{
+      seq: 1,
+      type: "console_error",
+      level: "error",
+      message: "boom",
+      timestamp: "2026-04-12T00:00:00.000Z",
+      page_url: "https://example.com/",
+    } as unknown as TimelineEvent];
     await mountSidePanel(h.deps);
     await startSession(h);
+    h.deps.root.querySelector<HTMLButtonElement>("#pause-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
 
+    // Feature-17: pause's label swaps to Resume in paused state;
+    // download/clear replace the legacy stop/discard verbs.
     const expected: Record<string, string> = {
-      "pause-btn": "Pause",
-      "stop-btn": "Download",
-      "discard-btn": "Discard",
+      "pause-btn": "Resume",
+      "download-btn": "Download",
+      "clear-btn": "Clear",
       "pick-element-btn": "select",
       "add-note-btn": "Add",
     };
     for (const [id, label] of Object.entries(expected)) {
       const btn = h.deps.root.querySelector<HTMLButtonElement>(`#${id}`);
-      expect(btn, `#${id} must be in DOM after start`).not.toBeNull();
+      expect(btn, `#${id} must be in DOM after pause`).not.toBeNull();
       expect(
         btn!.querySelector(".btn-label")!.textContent,
         `#${id} label must equal ${label}`,

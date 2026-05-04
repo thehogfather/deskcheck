@@ -1,20 +1,28 @@
 // Pure view-model for the side panel's control region. Takes the
-// current session status and residual-state flag and returns a
-// declarative shape describing which controls should be rendered.
-// The panel glue layer (sidepanel.ts) mounts/unmounts DOM nodes
-// from this shape — NEVER toggling `display: none`. The feature #11
-// DoD requires hidden controls to be "absent from the DOM, not
+// current session status, residual-state flag, whether the timeline has
+// any material events, and whether a CLI handoff listener is attached
+// — and returns a declarative shape describing which controls should
+// be rendered. The panel glue layer (sidepanel.ts) mounts/unmounts DOM
+// nodes from this shape — NEVER toggling `display: none`. The feature
+// #11 DoD requires hidden controls to be "absent from the DOM, not
 // merely disabled", which is enforced structurally by appending vs
 // removing children, not by styling.
 //
-// Zero DOM, zero Chrome APIs. Trivial to unit-test exhaustively
-// across the (status × residual) product.
+// Feature #17 narrows the user-driven verb surface from
+// {Start, Pause, Resume, Stop, Discard, Reset} to a smaller, contextual
+// set:
+//   pre-session  → Start
+//   running      → Pause
+//   paused       → Resume + (Download, Clear when timeline has events)
+//                          + (End when a CLI listener is attached)
+// Stop / Discard / Reset are removed from the surface — Clear subsumes
+// the post-session "drop residual state" role. The underlying
+// SessionStatus state machine is unchanged.
+//
+// Zero DOM, zero Chrome APIs.
 
 import type { SessionStatus } from "./session-status";
-import {
-  isLifecycleControlVisible,
-  isResetEligible,
-} from "./session-status";
+import type { TimelineEvent } from "../types";
 
 export interface ControlVisibility {
   /** Start button — shown pre-session (idle/stopped). */
@@ -41,14 +49,33 @@ export interface ControlVisibility {
   annotation: boolean;
   /** Element picker button. */
   elementPicker: boolean;
-  /** Pause button (label swaps between "Pause" and "Resume" in the glue layer). */
+  /**
+   * Pause button. Shown during running AND paused (the glue layer swaps
+   * the label between "Pause" and "Resume"). Pre-session it is absent.
+   */
   pause: boolean;
-  /** Stop & Download button. */
-  stop: boolean;
-  /** Discard button. */
-  discard: boolean;
-  /** Reset button — shown only when eligible AND residual state exists. */
-  reset: boolean;
+  /**
+   * Download button — finalise + zip + browser download. Replaces the
+   * legacy Stop verb. Only appears in `paused` state when the timeline
+   * has at least one material event.
+   */
+  download: boolean;
+  /**
+   * Clear button — irreversibly drops the session and returns to
+   * pre-session. Replaces the legacy Discard + Reset verbs. Only
+   * appears in `paused` state when the timeline has at least one
+   * material event. Like Discard, it shows a destructive confirmation
+   * dialog before proceeding.
+   */
+  clear: boolean;
+  /**
+   * End button — signals the attached CLI listener that the session is
+   * complete. Reuses the existing STOP_SESSION + EXPORT_SESSION path,
+   * which already routes through the handoff branch when a handoff
+   * config is present (feature #14 phase 2). Only appears in `paused`
+   * state when a CLI listener is attached.
+   */
+  end: boolean;
   /** The "paused" badge in the metrics row. */
   pausedBadge: boolean;
   /**
@@ -56,8 +83,7 @@ export interface ControlVisibility {
    * that accepts a `<listener-url> <token>` string from the CLI's
    * stdout. Visible pre-session only (idle/stopped); hidden mid-session
    * so the user cannot retarget a running recording to a different
-   * listener. The attached state is read from chrome.storage.local on
-   * mount, not recomputed here.
+   * listener.
    */
   attachCliListener: boolean;
 }
@@ -65,25 +91,33 @@ export interface ControlVisibility {
 export interface ControlsModelInputs {
   status: SessionStatus;
   hasResidualState: boolean;
+  /**
+   * Whether the timeline has at least one material event. Pause/Resume
+   * markers do NOT count — see countMaterialEvents.
+   */
+  hasEvents: boolean;
+  /**
+   * Whether a CLI handoff listener is currently attached. Determines
+   * whether the End exit appears in paused state.
+   */
+  listenerAttached: boolean;
 }
 
 /**
- * Compute the control visibility shape for a given (status, residual)
- * combination. This is the single source of truth for "what shows up
- * in the side panel form".
+ * Compute the control visibility shape for a given (status, residual,
+ * hasEvents, listenerAttached) combination. This is the single source
+ * of truth for "what shows up in the side panel form".
  */
 export function buildControlsModel(
   inputs: ControlsModelInputs,
 ): ControlVisibility {
-  const { status, hasResidualState } = inputs;
-  const lifecycleVisible = isLifecycleControlVisible(status);
+  const { status, hasResidualState, hasEvents, listenerAttached } = inputs;
   const preSession = status === "idle" || status === "stopped";
+  const lifecycleVisible = status === "running" || status === "paused";
+  const isPaused = status === "paused";
 
   return {
     start: preSession,
-    // Feature #16: hide selector during running/paused (mode is frozen
-    // at start). Pre-session shows the picker; during a session the
-    // piiIndicator pill takes over.
     piiMode: preSession,
     piiIndicator: !preSession,
     metrics: true,
@@ -91,13 +125,29 @@ export function buildControlsModel(
     annotation: lifecycleVisible,
     elementPicker: lifecycleVisible,
     pause: lifecycleVisible,
-    stop: lifecycleVisible,
-    discard: lifecycleVisible,
-    // Reset only appears when there is actually something to clear.
-    // An `idle` session with no residual state shows just Start.
-    reset: isResetEligible(status) && hasResidualState,
+    // Feature-17: contextual exits — paused-only, gated on event count
+    // for Download/Clear and on listener attachment for End.
+    download: isPaused && hasEvents,
+    clear: isPaused && hasEvents,
+    end: isPaused && listenerAttached,
     pausedBadge: status === "paused",
-    // CLI listener paste affordance — pre-session only.
     attachCliListener: preSession,
   };
+}
+
+/**
+ * Count timeline events that contribute to "the user has captured
+ * something worth shipping or discarding". Pause/Resume markers are
+ * bookkeeping, not material events — an empty-paused session shows
+ * only the Resume affordance because no Download or Clear is meaningful.
+ */
+export function countMaterialEvents(events: TimelineEvent[]): number {
+  let count = 0;
+  for (const event of events) {
+    if (event.type === "session_paused" || event.type === "session_resumed") {
+      continue;
+    }
+    count++;
+  }
+  return count;
 }

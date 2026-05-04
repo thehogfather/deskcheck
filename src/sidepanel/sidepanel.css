@@ -87,7 +87,7 @@ html, body {
   background: var(--accent-hover);
 }
 
-/* ── Toolbar (lifecycle controls + metrics) ── */
+/* ── Toolbar (status row above controls row) ── */
 
 #toolbar {
   flex: 0 0 auto;
@@ -99,6 +99,27 @@ html, body {
   gap: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   z-index: 1;
+}
+
+/* Top row: glanceable status — connection pill, capture-mode pill,
+ * metrics (duration · counts · size), paused badge. Wraps on narrow
+ * panels rather than truncating. */
+.toolbar-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Second row: lifecycle controls — Start (pre-session) OR
+ * Pause/Download/Clear/End (active/paused). Buttons share the existing
+ * .sp-row gap rules. */
+.toolbar-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 /* ── Events list ── */
