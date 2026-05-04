@@ -584,11 +584,17 @@ export async function mountSidePanel(
         events = [...snapshot.events];
         renderAllEvents();
         updateMetrics();
+        // Recompute controls — if the panel mounted into a paused
+        // session, hasEvents was false at the previous applyControlsModel
+        // call (events were empty), so Download/Clear were withheld.
+        // Now that the snapshot is hydrated, re-derive visibility.
+        applyControlsModel();
       } else if (events.length > 0) {
         // initialEvents was provided by deps; re-render with any
         // screenshots that arrived alongside the snapshot.
         renderAllEvents();
         updateMetrics();
+        applyControlsModel();
       }
     } catch {
       // SW may not be ready yet — fall back to whatever initialEvents/
