@@ -260,10 +260,21 @@ function openPanelInGestureWindow(tabId: number): void {
 
 chrome.action.onClicked.addListener((tab) => {
   if (!tab.id) return;
-  // If a session is already active, route the click back to the
-  // recording tab — never open a second panel elsewhere mid-session.
-  const targetTabId =
-    isSessionInFlight() && activeTabId != null ? activeTabId : tab.id;
+  const targetTabId = tab.id;
+
+  // Feature #7 (bounce-with-offer): if a session is active and the user
+  // clicks the action on a tab that is NOT the recording tab, we open
+  // the panel ON that tab so it can render the "Switch recording here"
+  // offer — instead of silently yanking the user back to the recording
+  // tab (the pre-feature-7 behaviour). We deliberately do NOT scope the
+  // recording tab's panel away in that case, so the user can still flip
+  // back to it; the panel's per-tab hide/show handles which one is
+  // visible. When there is no session, or the click is on the recording
+  // tab itself, the original bind-on-open scoping applies.
+  const offerSwitch =
+    isSessionInFlight() &&
+    activeTabId != null &&
+    targetTabId !== activeTabId;
 
   // Phase 2: check if this tab has a pending handoff to promote
   const pendingEntry = __pendingHandoffs.get(targetTabId);
@@ -271,10 +282,13 @@ chrome.action.onClicked.addListener((tab) => {
   // Fire both calls synchronously inside the gesture window.
   openPanelInGestureWindow(targetTabId);
 
-  // Async follow-up: scope other tabs away, promote pending handoff,
-  // and (if we redirected) bring the recording tab into focus.
+  // Async follow-up: scope other tabs away (unless we are offering a
+  // switch, in which case the recording tab's panel must stay enabled),
+  // and promote any pending handoff.
   void (async () => {
-    await scopeOtherTabsAwayFromBound(targetTabId);
+    if (!offerSwitch) {
+      await scopeOtherTabsAwayFromBound(targetTabId);
+    }
 
     // Promote pending handoff -> active deskcheck_handoff
     if (pendingEntry) {
@@ -299,14 +313,6 @@ chrome.action.onClicked.addListener((tab) => {
         pending: null,
         active: activeConfig,
       });
-    }
-
-    if (targetTabId !== tab.id) {
-      try {
-        await chrome.tabs.update(targetTabId, { active: true });
-      } catch {
-        // Tab may have been closed.
-      }
     }
   })();
 });
@@ -446,6 +452,134 @@ async function handleMessage(
       }
       currentStatus = "running";
       return { status: currentStatus, paused: false };
+    }
+
+    case "SWITCH_RECORDING_TAB": {
+      // Feature #7: move the active recording to a different tab. Opt-in
+      // and explicit — only reachable via the side panel's "Switch
+      // recording here" button on a non-recording tab.
+      if (!isSessionInFlight()) return { switched: false };
+      const newTabId = msg.tabId;
+      const oldTabId = activeTabId;
+      if (newTabId == null || newTabId === oldTabId) {
+        return { switched: false };
+      }
+      const session = await store.getSession();
+      if (!session) return { switched: false };
+
+      // Resolve from/to URLs for the timeline marker (best-effort for the
+      // old tab; required for the new one).
+      let fromUrl = session.initial_url;
+      if (oldTabId != null) {
+        try {
+          const oldTab = await chrome.tabs.get(oldTabId);
+          fromUrl = oldTab.url ?? fromUrl;
+        } catch {
+          // Old tab may be gone — keep the metadata URL.
+        }
+      }
+      let toUrl = "";
+      try {
+        const newTab = await chrome.tabs.get(newTabId);
+        toUrl = newTab.url ?? "";
+      } catch {
+        return {
+          switched: false,
+          warnings: ["Could not read the target tab — recording unchanged."],
+        };
+      }
+
+      // Move the debugger pointer. If attaching to the new tab fails
+      // (e.g. DevTools already open there — only one debugger client per
+      // tab), keep the session alive on the old tab rather than tearing
+      // it down. moveTo() detaches the old tab first, so on failure we
+      // re-attach to it so capture continues where it was.
+      const warnings: string[] = [];
+      try {
+        await debuggerClient.moveTo(newTabId, toUrl);
+      } catch (e) {
+        console.warn("[DeskCheck] Failed to move debugger to new tab:", e);
+        if (oldTabId != null) {
+          try {
+            await debuggerClient.moveTo(oldTabId, fromUrl);
+          } catch {
+            // Could not recover the old attachment — capture of console/
+            // network errors will be degraded but the session continues.
+          }
+        }
+        return {
+          switched: false,
+          warnings: [
+            "Could not move recording to that tab — it may have DevTools open. Recording stays on the original tab.",
+          ],
+        };
+      }
+
+      // Inject the recorder into the new tab (idempotent) so DOM
+      // interactions are captured there too.
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: newTabId },
+          files: ["src/content/index.js"],
+        });
+      } catch (e) {
+        console.warn("[DeskCheck] Failed to inject content script on switch:", e);
+        warnings.push(
+          "Could not inject the recorder into the new tab — DOM interactions may not be recorded.",
+        );
+      }
+
+      // Flip the recording pointer and persist the new bound tab.
+      activeTabId = newTabId;
+      await store.updateSession({ tab_id: newTabId });
+
+      // Stop the old tab's content script; start the new one's.
+      if (oldTabId != null) {
+        void chrome.tabs
+          .sendMessage(oldTabId, { type: "SESSION_STOPPED" })
+          .catch(() => {});
+      }
+      try {
+        await chrome.tabs.sendMessage(newTabId, {
+          type: "SESSION_STARTED",
+          sessionId: session.id,
+          piiMode: session.pii_mode,
+        });
+      } catch {
+        // Content script picks up via storage.onChanged fallback.
+      }
+
+      // Log the switch to the timeline (records from/to tab + url).
+      await appendEventBroadcast({
+        type: "tab_switch",
+        timestamp: new Date().toISOString(),
+        from_tab_id: oldTabId,
+        from_url: fromUrl,
+        to_tab_id: newTabId,
+        to_url: toUrl,
+        page_url: toUrl,
+      });
+
+      // Feature #9: move the DeskCheck tab-group membership to follow
+      // the recording. Decorative — never blocks the switch.
+      if (oldTabId != null) {
+        void removeTabFromDeskCheckGroup(oldTabId);
+      }
+      try {
+        const newTab = await chrome.tabs.get(newTabId);
+        if (newTab.windowId != null) {
+          void assignTabToDeskCheckGroup(newTabId, newTab.windowId);
+        }
+      } catch {
+        // Grouping is best-effort.
+      }
+
+      // Re-scope the side panel binding to the new recording tab and tell
+      // every open panel to re-evaluate its "switch recording here" offer.
+      await scopeOtherTabsAwayFromBound(newTabId);
+      broadcastToPanels({ type: "RECORDING_TAB_CHANGED", tabId: newTabId });
+
+      return { switched: true, warnings };
     }
 
     case "DISCARD_SESSION": {

@@ -3,6 +3,7 @@ import {
   SessionExport,
   SessionSummary,
   SessionMetadata,
+  TabSummary,
   TimelineEvent,
 } from "../types";
 import { PRIVACY_MD_TEMPLATE } from "./privacy";
@@ -162,8 +163,25 @@ export function buildSummary(events: TimelineEvent[]): SessionSummary {
   let jsExceptions = 0;
   let screenshots = 0;
 
+  // Per-tab breakdown (feature #7). One segment per contiguous run of
+  // events bound to the same tab; a `tab_switch` event closes the
+  // current segment (counted under the from-tab) and opens a new one
+  // for the to-tab. Derivable from the timeline alone — no session
+  // metadata needed.
+  const tabs: TabSummary[] = [];
+  let currentTab: TabSummary | null = null;
+
   for (const event of events) {
     pages.add(event.page_url);
+    if (currentTab === null) {
+      currentTab = { url: event.page_url, events: 0 };
+      tabs.push(currentTab);
+    }
+    currentTab.events++;
+    if (event.type === "tab_switch") {
+      currentTab = { url: event.to_url, events: 0 };
+      tabs.push(currentTab);
+    }
     switch (event.type) {
       case "annotation":
         annotations++;
@@ -193,6 +211,7 @@ export function buildSummary(events: TimelineEvent[]): SessionSummary {
     js_exceptions: jsExceptions,
     screenshots,
     pages_visited: [...pages],
+    tabs,
   };
 }
 

@@ -49,6 +49,11 @@ export class DebuggerClient {
   private onEvent: EventCallback | null = null;
   private pageUrl = "";
   private requestUrls = new Map<string, { url: string; method: string }>();
+  // Set while moveTo() is deliberately detaching from the old tab so the
+  // onDetach handler does not treat our own detach as a capture
+  // interruption (which would emit a spurious warning event and could be
+  // mistaken for an involuntary teardown). Feature #7.
+  private isMoving = false;
 
   // Bind handlers so they can be added/removed as listeners
   private handleCdpEvent = this._handleCdpEvent.bind(this);
@@ -70,6 +75,49 @@ export class DebuggerClient {
 
     chrome.debugger.onEvent.addListener(this.handleCdpEvent);
     chrome.debugger.onDetach.addListener(this.handleDetach);
+  }
+
+  /**
+   * Move the recording pointer from the current tab to `newTabId`
+   * without tearing down the session (feature #7 — opt-in tab switching).
+   *
+   * Detaches the debugger from the previously-attached tab (if any),
+   * attaches to the new tab, and re-enables the protocol domains on it.
+   * The `onEvent` / `onDetach` listeners registered by `attach()` are
+   * reused — only `attachedTabId` changes, so CDP events from the new
+   * tab start flowing and events from the old tab stop (the dispatcher
+   * filters on `attachedTabId`).
+   *
+   * Throws if attaching to the new tab fails (e.g. DevTools is already
+   * open on it — only one debugger client per tab). The caller is
+   * expected to keep the session on the old tab in that case; on throw
+   * `attachedTabId` is left null so a subsequent retry re-attaches
+   * cleanly.
+   */
+  async moveTo(newTabId: number, newUrl: string): Promise<void> {
+    const previousTabId = this.attachedTabId;
+    this.isMoving = true;
+    try {
+      if (previousTabId !== null) {
+        try {
+          await chrome.debugger.detach({ tabId: previousTabId });
+        } catch {
+          // Already detached — fine, we are about to re-attach elsewhere.
+        }
+      }
+      // attachedTabId is null between detach and a successful attach so a
+      // late onDetach for the old tab cannot match the new target.
+      this.attachedTabId = null;
+      await chrome.debugger.attach({ tabId: newTabId }, CDP_VERSION);
+      await chrome.debugger.sendCommand({ tabId: newTabId }, "Network.enable");
+      await chrome.debugger.sendCommand({ tabId: newTabId }, "Log.enable");
+      await chrome.debugger.sendCommand({ tabId: newTabId }, "Runtime.enable");
+      this.attachedTabId = newTabId;
+      this.pageUrl = newUrl;
+      this.requestUrls.clear();
+    } finally {
+      this.isMoving = false;
+    }
   }
 
   async detach(): Promise<void> {
@@ -201,6 +249,9 @@ export class DebuggerClient {
     source: chrome.debugger.Debuggee,
     reason: string,
   ) {
+    // A move() is detaching the old tab on purpose — not a capture
+    // interruption. Stay silent and keep the session alive.
+    if (this.isMoving) return;
     if (source.tabId !== this.attachedTabId) return;
     console.warn("[DeskCheck] Debugger detached:", reason);
     this.emit({

@@ -133,6 +133,28 @@ export interface SessionResumedEvent extends BaseEvent {
   type: "session_resumed";
 }
 
+/**
+ * Written when the user opts to move the active recording from one tab
+ * to another (feature #7). The recording pointer — chrome.debugger
+ * attachment, content-script injection, and screenshot target — moves
+ * to `to_tab_id` at this timestamp. Events before this marker belong to
+ * `from_tab_id`; events after belong to `to_tab_id`. `page_url` mirrors
+ * `to_url` so the base-field invariant ("the page the event happened on")
+ * points at the tab the recording lives on once the switch completes.
+ *
+ * The switch is always explicit and user-initiated — DeskCheck never
+ * follows the user across tabs implicitly (feature #7 privacy invariant).
+ *
+ * Added in schema 1.3.0.
+ */
+export interface TabSwitchEvent extends BaseEvent {
+  type: "tab_switch";
+  from_tab_id: number | null;
+  from_url: string;
+  to_tab_id: number;
+  to_url: string;
+}
+
 export type TimelineEvent =
   | InteractionEvent
   | ViewportResizeEvent
@@ -142,15 +164,32 @@ export type TimelineEvent =
   | AnnotationEvent
   | ScreenshotEvent
   | SessionPausedEvent
-  | SessionResumedEvent;
+  | SessionResumedEvent
+  | TabSwitchEvent;
 
 // ── Export Schema ──
 
 export interface SessionExport {
-  schema_version: "1.2.0";
+  schema_version: "1.3.0";
   session: SessionMetadata;
   timeline: TimelineEvent[];
   summary: SessionSummary;
+}
+
+/**
+ * One contiguous segment of the recording bound to a single tab.
+ *
+ * Segments are delimited by `tab_switch` events: the recording starts on
+ * the session's initial tab and a new segment begins after each switch.
+ * Switching back to a previously-recorded tab opens a fresh segment — the
+ * list is timeline-ordered, not deduplicated by tab. Added in schema
+ * 1.3.0 (feature #7).
+ */
+export interface TabSummary {
+  /** URL the recording was bound to for this segment. */
+  url: string;
+  /** Number of timeline events captured while bound to this tab. */
+  events: number;
 }
 
 export interface SessionSummary {
@@ -162,6 +201,12 @@ export interface SessionSummary {
   js_exceptions: number;
   screenshots: number;
   pages_visited: string[];
+  /**
+   * Per-tab breakdown of the timeline, one entry per contiguous recording
+   * segment (see TabSummary). For a single-tab session this is one entry.
+   * Added in schema 1.3.0 (feature #7).
+   */
+  tabs: TabSummary[];
 }
 
 // ── Messages (content script <-> service worker) ──
@@ -190,6 +235,11 @@ export type Message =
   | { type: "STOP_SESSION" }
   | { type: "PAUSE_SESSION" }
   | { type: "RESUME_SESSION" }
+  // Feature #7: opt-in tab switching. Sent by the side panel when the
+  // user, while on a tab the session is NOT recording, clicks "Switch
+  // recording here". The service worker moves the debugger + content
+  // script + screenshot target to `tabId` and logs a `tab_switch` event.
+  | { type: "SWITCH_RECORDING_TAB"; tabId: number }
   | { type: "DISCARD_SESSION" }
   | { type: "RESET_SESSION" }
   | { type: "SESSION_STARTED"; sessionId: string; piiMode: PiiCaptureMode }
@@ -209,6 +259,12 @@ export type Message =
   | { type: "EVENT_APPENDED"; event: TimelineEvent }
   | { type: "SCREENSHOT_APPENDED"; id: string; dataUrl: string }
   | { type: "SESSION_CLEARED" }
+  // Feature #7: broadcast after the recording pointer moves to a new
+  // tab so every open side panel can re-evaluate whether it is sitting
+  // on the recording tab (and show/clear the "switch recording here"
+  // offer accordingly). `tabId` is the new recording tab, or null when
+  // there is no in-flight session.
+  | { type: "RECORDING_TAB_CHANGED"; tabId: number | null }
   // Feature #14 phase 1: the service worker broadcasts this when the CLI
   // handoff path fell through (listener unreachable, rejected, or the
   // final download fallback also failed). The side panel renders the

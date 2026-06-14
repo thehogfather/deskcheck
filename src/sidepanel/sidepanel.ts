@@ -222,6 +222,12 @@ export async function mountSidePanel(
   // in paused state without panel re-mount. Updated by the
   // PENDING_HANDOFF_CHANGED runtime message and on initial mount.
   let listenerAttached = false;
+  // Feature #7: when an in-flight session is recording a DIFFERENT tab
+  // than the one this panel is bound to, this holds that recording tab's
+  // id and applyControlsModel() renders the "switch recording here"
+  // offer instead of the normal controls. null = this panel is on the
+  // recording tab (or there is no session) → normal controls.
+  let recordingElsewhereTabId: number | null = null;
 
   const scrollAnchor = new ScrollAnchor();
 
@@ -512,6 +518,73 @@ export async function mountSidePanel(
   // Async error line — shows the last error from a loading action.
   const asyncErrorLine = el("span", { id: "async-error", class: "async-error" });
 
+  // ─── Feature #7: "switch recording here" offer ────────────────────
+  // Shown when this panel sits on a tab the session is NOT recording.
+  // The user explicitly chooses to move the recording here or to jump
+  // back to the recording tab — DeskCheck never follows tabs implicitly.
+  const switchOfferPanel = el("section", {
+    id: "switch-offer",
+    class: "switch-offer",
+    role: "region",
+    "aria-label": "Move recording to this tab",
+  });
+  const switchOfferText = el("p", { class: "switch-offer-text" }, [
+    "DeskCheck is recording a different tab.",
+  ]);
+  const switchOfferActions = el("div", { class: "sp-row" });
+  const switchHereBtn = el(
+    "button",
+    { id: "switch-recording-here-btn", class: "sp-btn primary" },
+    ["Switch recording here"],
+  ) as HTMLButtonElement;
+  const gotoRecordingBtn = el(
+    "button",
+    { id: "goto-recording-tab-btn", class: "sp-btn" },
+    ["Go to recording tab"],
+  ) as HTMLButtonElement;
+  switchOfferActions.appendChild(switchHereBtn);
+  switchOfferActions.appendChild(gotoRecordingBtn);
+  switchOfferPanel.appendChild(switchOfferText);
+  switchOfferPanel.appendChild(switchOfferActions);
+
+  switchHereBtn.addEventListener("click", async () => {
+    switchHereBtn.disabled = true;
+    asyncErrorLine.textContent = "";
+    try {
+      const own = await resolveOwnTabId();
+      if (own == null) {
+        asyncErrorLine.textContent = "Could not determine this tab.";
+        return;
+      }
+      const res = (await sendMessage({
+        type: "SWITCH_RECORDING_TAB",
+        tabId: own,
+      })) as { switched?: boolean; warnings?: string[] } | undefined;
+      if (res?.switched) {
+        recordingElsewhereTabId = null;
+        await refreshSessionState();
+      } else {
+        asyncErrorLine.textContent =
+          res?.warnings?.[0] ?? "Could not switch recording to this tab.";
+      }
+    } catch (e) {
+      asyncErrorLine.textContent = `Switch failed: ${String(e)}`;
+    } finally {
+      switchHereBtn.disabled = false;
+    }
+  });
+
+  gotoRecordingBtn.addEventListener("click", async () => {
+    const recId = recordingElsewhereTabId;
+    if (recId == null) return;
+    try {
+      const c = (globalThis as unknown as { chrome?: typeof chrome }).chrome;
+      if (c?.tabs?.update) await c.tabs.update(recId, { active: true });
+    } catch {
+      // The recording tab may have been closed — nothing to focus.
+    }
+  });
+
   // New-events chip — shown when the user has scrolled away from the bottom.
   const newEventsChip = el("button", { id: "new-events-chip", class: "new-events-chip hidden sp-btn" });
   newEventsChip.addEventListener("click", () => {
@@ -682,6 +755,13 @@ export async function mountSidePanel(
       // confused when the zip lands in Downloads instead of at the
       // attached listener.
       asyncErrorLine.textContent = msg.message;
+      return;
+    }
+    if (msg.type === "RECORDING_TAB_CHANGED") {
+      // Feature #7: the recording pointer moved. Re-evaluate whether this
+      // panel is still on the recording tab and re-render (showing or
+      // clearing the switch offer as needed).
+      void refreshSessionState();
       return;
     }
     if (msg.type === "PENDING_HANDOFF_CHANGED") {
@@ -1017,10 +1097,58 @@ export async function mountSidePanel(
     }
   }
 
+  /**
+   * Feature #7: the tab id this panel is bound to. The side panel only
+   * renders on its bound tab (which is the active tab of its window), so
+   * the active tab IS this panel's tab.
+   */
+  async function resolveOwnTabId(): Promise<number | null> {
+    const tab = await getActiveTab();
+    return tab?.id ?? null;
+  }
+
+  /**
+   * Feature #7: recompute whether this panel is sitting on the recording
+   * tab. `recordingTabId` is the in-flight session's tab (or null when
+   * there is no session). The offer is shown ONLY when this panel is
+   * docked beside a real web tab that differs from the recording tab.
+   *
+   * A standalone panel page — opened as a `chrome-extension://` tab (the
+   * CLI-launched panel, or the e2e harness that mounts the panel as a
+   * regular page) — is its own "active tab" and must never trigger the
+   * offer: there is no meaningful web tab to switch recording to. We
+   * detect that case by the active tab's URL and bail out.
+   */
+  async function updateRecordingBinding(
+    recordingTabId: number | null,
+  ): Promise<void> {
+    if (recordingTabId == null) {
+      recordingElsewhereTabId = null;
+      return;
+    }
+    const own = await getActiveTab();
+    if (!own || own.id == null) {
+      recordingElsewhereTabId = null;
+      return;
+    }
+    if (own.url && own.url.startsWith("chrome-extension://")) {
+      recordingElsewhereTabId = null;
+      return;
+    }
+    recordingElsewhereTabId =
+      own.id !== recordingTabId ? recordingTabId : null;
+  }
+
   async function refreshSessionState() {
     try {
       const result = (await sendMessage({ type: "GET_SESSION_STATE" })) as
-        | { recording?: boolean; paused?: boolean; status?: SessionStatus; piiMode?: PiiCaptureMode }
+        | {
+            recording?: boolean;
+            paused?: boolean;
+            status?: SessionStatus;
+            piiMode?: PiiCaptureMode;
+            activeTabId?: number | null;
+          }
         | undefined;
       if (result?.status) {
         transitionTo(result.status);
@@ -1035,6 +1163,16 @@ export async function mountSidePanel(
           `input[name="pii-mode"][value="${selectedPiiMode}"]`,
         );
         if (radio) radio.checked = true;
+      }
+      // Feature #7: recompute the offer binding AFTER status/pii so the
+      // own-tab resolution (async) does not shift the render timing of the
+      // common no-session path. Re-render only if the binding changed.
+      const recordingTabId =
+        result?.recording ? result?.activeTabId ?? null : null;
+      const prevBinding = recordingElsewhereTabId;
+      await updateRecordingBinding(recordingTabId);
+      if (recordingElsewhereTabId !== prevBinding) {
+        applyControlsModel();
       }
     } catch {
       // SW may be waking up; non-fatal.
@@ -1051,7 +1189,31 @@ export async function mountSidePanel(
     applyControlsModel();
   }
 
+  /**
+   * Feature #7: replace the toolbar/controls with the "switch recording
+   * here" offer. Called from applyControlsModel when this panel is on a
+   * non-recording tab during an active session.
+   */
+  function renderSwitchOffer() {
+    clearChildren(toolbar);
+    clearChildren(controls);
+    clearChildren(switchOfferActions);
+    switchOfferActions.appendChild(switchHereBtn);
+    switchOfferActions.appendChild(gotoRecordingBtn);
+    switchOfferActions.appendChild(asyncErrorLine);
+    toolbar.appendChild(switchOfferPanel);
+  }
+
   function applyControlsModel() {
+    // Feature #7: when this panel is not on the recording tab, show the
+    // switch offer and nothing else. Inert in every pre-feature-7 path —
+    // recordingElsewhereTabId is only set when GET_SESSION_STATE reports
+    // an in-flight session bound to a different tab than this panel.
+    if (recordingElsewhereTabId != null) {
+      renderSwitchOffer();
+      return;
+    }
+
     const model: ControlVisibility = buildControlsModel({
       status,
       hasResidualState: hasResidualState(),

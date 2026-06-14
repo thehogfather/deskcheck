@@ -20,6 +20,7 @@ const EXPECTED_DISCRIMINATORS: ReadonlySet<TimelineEvent["type"]> = new Set([
   "screenshot",
   "session_paused",
   "session_resumed",
+  "tab_switch",
 ]);
 
 const SESSION_METADATA_FIELDS = [
@@ -34,8 +35,8 @@ const SESSION_METADATA_FIELDS = [
 ] as const;
 
 describe("SCHEMA_VERSION", () => {
-  it("is bumped to 1.2.0 for the additive status + lifecycle-marker schema change", () => {
-    expect(SCHEMA_VERSION).toBe("1.2.0");
+  it("is bumped to 1.3.0 for the additive tab_switch event + per-tab summary (feature #7)", () => {
+    expect(SCHEMA_VERSION).toBe("1.3.0");
   });
 });
 
@@ -63,8 +64,12 @@ describe("AGENTS_MD content", () => {
     }
   });
 
-  it("does NOT advertise tab_id (it is stripped on export)", () => {
-    expect(AGENTS_MD).not.toContain("tab_id");
+  it("does NOT advertise the session metadata tab_id field (it is stripped on export)", () => {
+    // The backtick-quoted `tab_id` would only appear as a session
+    // metadata table row. The tab_switch event's `from_tab_id` /
+    // `to_tab_id` fields are a different, legitimately-advertised thing,
+    // so we match the exact quoted field name rather than the substring.
+    expect(AGENTS_MD).not.toContain("`tab_id`");
   });
 
   it("documents every event type discriminator", () => {

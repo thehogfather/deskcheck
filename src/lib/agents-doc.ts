@@ -11,8 +11,11 @@ import { TimelineEvent } from "../types";
  * `TimelineEvent` discriminators (`session_paused`, `session_resumed`)
  * — still additive, so existing parsers that ignore unknown fields
  * and event types continue to work.
+ * 1.3.0 added the `tab_switch` event discriminator and the
+ * `summary.tabs` per-tab breakdown for opt-in tab switching (feature
+ * #7) — additive, so existing parsers continue to work.
  */
-export const SCHEMA_VERSION = "1.2.0" as const;
+export const SCHEMA_VERSION = "1.3.0" as const;
 
 /**
  * Canonical list of every TimelineEvent discriminator. Kept in lockstep
@@ -29,6 +32,7 @@ export const AGENTS_MD_EVENT_TYPES = [
   "screenshot",
   "session_paused",
   "session_resumed",
+  "tab_switch",
 ] as const satisfies readonly TimelineEvent["type"][];
 
 /**
@@ -50,6 +54,7 @@ export function assertExhaustiveEventTypes(e: TimelineEvent): void {
     case "screenshot":
     case "session_paused":
     case "session_resumed":
+    case "tab_switch":
       return;
     default: {
       const _exhaustive: never = e;
@@ -130,7 +135,7 @@ these base fields:
 | \`page_url\` | string | URL of the page when the event was captured. |
 | \`type\` | string | Discriminator — one of the values listed below. |
 
-The \`type\` field selects the rest of the shape. There are nine
+The \`type\` field selects the rest of the shape. There are ten
 event types.
 
 ## Event types
@@ -244,6 +249,28 @@ timeline.
 
 Added in schema 1.2.0.
 
+### type: \`tab_switch\`
+
+The user explicitly moved the active recording from one tab to another.
+DeskCheck binds a recording to a single tab; this marker is the only way
+the bound tab changes mid-session, and it is always user-initiated (the
+extension never follows the user across tabs implicitly). All capture
+before this marker came from \`from_tab_id\`; all capture after it comes
+from \`to_tab_id\`.
+
+| Field | Type | Meaning |
+|---|---|---|
+| \`from_tab_id\` | number \\| null | Tab the recording moved from (null if unknown). |
+| \`from_url\` | string | URL of the tab the recording moved from. |
+| \`to_tab_id\` | number | Tab the recording moved to. |
+| \`to_url\` | string | URL of the tab the recording moved to. |
+
+Use these markers to attribute each timeline event to the right tab and
+to render a per-tab reproduction story. The \`summary.tabs\` array is the
+pre-computed breakdown of the same information.
+
+Added in schema 1.3.0.
+
 ### Note on \`total_events\` vs lifecycle markers
 
 The summary's \`total_events\` count **includes** \`session_paused\` and
@@ -283,6 +310,7 @@ quick-look totals without re-walking the events:
 | \`js_exceptions\` | number | Count of \`js_exception\` events. |
 | \`screenshots\` | number | Count of \`screenshot\` events. |
 | \`pages_visited\` | string[] | Unique \`page_url\` values across the timeline. |
+| \`tabs\` | array | Per-tab breakdown: one \`{ url, events }\` entry per contiguous recording segment, split at every \`tab_switch\`. A single-tab session has one entry. Added in schema 1.3.0. |
 
 ## Writing a bug report from this zip
 

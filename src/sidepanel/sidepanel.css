@@ -383,6 +383,25 @@ html, body {
   line-height: 1.4;
 }
 
+/* Feature #7: "switch recording here" offer, shown when the panel is on
+   a tab the session is not recording. */
+.switch-offer {
+  background: var(--bg);
+  border: 1px solid var(--accent, #3b82f6);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.switch-offer .switch-offer-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
 #annotation-text {
   width: 100%;
   min-height: 48px;
