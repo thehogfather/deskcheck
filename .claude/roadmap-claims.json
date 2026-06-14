@@ -24,11 +24,11 @@
     "claimed_at": "2026-04-11T22:42:55.637313+00:00",
     "claimed_by": "orch-20260411-234231-94601",
     "feature_id": "feature-14-phase-2",
-    "feature_title": "CLI integration Phase 2 \u2014 terminal-launched sessions",
+    "feature_title": "CLI integration Phase 2 — terminal-launched sessions",
     "released_at": "2026-05-02T20:57:00+00:00",
     "released_by": "orch-20260411-234231-94601",
     "session_id": "orch-20260411-234231-94601",
-    "status": "abandoned"
+    "status": "completed"
   },
   "feature-15": {
     "branch": "feature/feature-15",
@@ -51,10 +51,15 @@
     "status": "completed"
   },
   "feature-17": {
+    "branch": "feature/feature-17",
     "claimed_at": "2026-05-03T12:34:18+00:00",
+    "claimed_by": "orch-20260503-133418-83982",
+    "feature_id": "feature-17",
+    "feature_title": "Simplify session lifecycle: Pause-first, contextual exits",
+    "pr": "https://github.com/thehogfather/deskcheck/pull/21",
+    "released_at": "2026-05-04T08:17:20+00:00",
     "session_id": "orch-20260503-133418-83982",
-    "status": "active",
-    "ttl_hours": 24
+    "status": "completed"
   },
   "feature-2": {
     "branch": "feature/sensitive-data-warnings",
