@@ -327,12 +327,12 @@ status: draft
 - **Description**: A session is currently bound to the tab it started on. `takeScreenshot()` refuses to capture if the recorded tab is not the active tab, which prevents leaking content from an unrelated tab but also means users cannot follow a bug across tabs without ending the session. This feature adds an explicit "Switch recording to this tab" affordance — similar to Chrome's "Share another tab" flow in `getDisplayMedia` — that the user must click to move the recording pointer. Tab changes must be logged to the timeline (new event type or extension to `interaction`) and the export must clearly show which events came from which tab.
 - **Constraints**: Must remain opt-in; no implicit follow. Must preserve the privacy invariant "DeskCheck only captures tabs the user explicitly authorised this session". Debugger attach/detach must move with the recording; CDP client currently attaches to a single tab.
 - **Definition of done**:
-  - [ ] Widget shows a "Switch recording here" button when the user is on a tab that the session is not currently recording
-  - [ ] Clicking the button detaches the debugger from the old tab, attaches it to the new tab, and injects the content script if needed
-  - [ ] A "tab_switch" timeline event records the from-tab and to-tab URLs and timestamp
-  - [ ] `session.json` export includes a per-tab breakdown in the summary
-  - [ ] Screenshots taken after a switch capture the new tab, never the old one
-  - [ ] First-run notice and pre-export reminder copy are updated to mention that users may opt in to move the recording across tabs
+  - [x] Side panel shows a "Switch recording here" button when the user is on a tab that the session is not currently recording (bounce-with-offer: clicking the action on a non-recording tab opens the panel there with the offer instead of routing back to the recording tab — `src/sidepanel/sidepanel.ts` `renderSwitchOffer`, pinned by `src/sidepanel/sidepanel.test.ts` "feature-7: switch-recording offer")
+  - [x] Clicking the button detaches the debugger from the old tab, attaches it to the new tab, and injects the content script if needed (`DebuggerClient.moveTo` + `SWITCH_RECORDING_TAB` handler; unit `src/lib/debugger-client.test.ts`, integration `tests/service-worker-tab-switch.test.ts`, e2e `e2e/tab-switch-feature7.spec.ts`)
+  - [x] A "tab_switch" timeline event records the from-tab and to-tab URLs and timestamp (`TabSwitchEvent` in `src/types.ts`; verified end-to-end in `tests/service-worker-tab-switch.test.ts` and `e2e/tab-switch-feature7.spec.ts`)
+  - [x] `session.json` export includes a per-tab breakdown in the summary (`summary.tabs` via `buildSummary`; `src/lib/exporter.test.ts`, golden `src/lib/exporter.golden.test.ts`)
+  - [x] Screenshots taken after a switch capture the new tab, never the old one (the `canCaptureRecordedTab` active-tab gate resolves against the new bound tab once `activeTabId` moves — `src/background/screenshot.ts`)
+  - [x] First-run notice and pre-export reminder copy are updated to mention that users may opt in to move the recording across tabs (`src/lib/privacy.ts`)
 
 ---
 

@@ -335,4 +335,12 @@ describe("countMaterialEvents — pause/resume markers excluded", () => {
     ];
     expect(countMaterialEvents(events)).toBe(3);
   });
+
+  it("excludes tab_switch markers — a switch-only session has nothing worth shipping (feature #7)", () => {
+    const events = [
+      { type: "tab_switch" } as unknown as TimelineEvent,
+      { type: "session_paused" } as unknown as TimelineEvent,
+    ];
+    expect(countMaterialEvents(events)).toBe(0);
+  });
 });

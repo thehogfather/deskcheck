@@ -9,10 +9,11 @@ export const PRIVACY_NOTICE_BULLETS: readonly string[] = [
   "Form inputs in the recorded tab are stored as you type them (passwords are masked, but other field values — email addresses, search queries, free-text fields — are stored verbatim).",
   "Network request and response headers for failed requests in the recorded tab are stored. Well-known auth headers like Authorization and Cookie are stripped, but custom headers are not.",
   "Session exports stay on your machine unless you explicitly attach a local CLI listener (`deskcheck listen`). If attached, exports are POSTed to a loopback 127.0.0.1 address on your own machine — nothing ever leaves the device.",
+  "DeskCheck records one tab at a time and never follows you when you change tabs. You can opt in to move the recording to another tab via the side panel's \"Switch recording here\" button — each move is logged to the timeline so the export shows which tab every event came from.",
 ] as const;
 
 export const PRIVACY_REMINDER_LINE =
-  "This export may contain screenshots and form inputs from the recorded tab that are sensitive. It is intended for local use only — review before sharing.";
+  "This export may contain screenshots and form inputs from the recorded tab(s) that are sensitive. If you opted to move the recording across tabs during the session, every tab you switched it to is included. It is intended for local use only — review before sharing.";
 
 export const PRIVACY_MD_TEMPLATE = `# Privacy notice
 
@@ -22,12 +23,19 @@ captured data can include information that is sensitive.
 
 ## What is recorded
 
-DeskCheck records a **single browser tab** — the one you were on when you
-started the session. It does not record other tabs, other browser windows,
-the browser chrome itself, your desktop, OS notifications, other applications,
-or anything outside that tab's viewport. If you switch to a different tab
-during a session, DeskCheck keeps recording the original tab and will refuse
-to take screenshots until you switch back.
+DeskCheck records a **single browser tab at a time** — the one you were on
+when you started the session. It does not record other tabs, other browser
+windows, the browser chrome itself, your desktop, OS notifications, other
+applications, or anything outside that tab's viewport. Simply switching to a
+different tab does **not** move the recording: DeskCheck keeps recording the
+original tab and refuses to screenshot anything else.
+
+You can, however, **explicitly opt in** to move the recording to another tab
+using the side panel's "Switch recording here" button — and only that way;
+DeskCheck never follows you across tabs on its own. Each move is written to
+the timeline as a \`tab_switch\` event and the export's summary lists a
+per-tab breakdown, so it is always clear which tab every captured event came
+from.
 
 ## What this export may contain
 

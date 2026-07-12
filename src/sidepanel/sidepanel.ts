@@ -23,6 +23,7 @@ import type {
 } from "../types";
 import type { SessionStatus } from "../lib/session-status";
 import { STORAGE_SESSION } from "../constants";
+import { isExtensionUrl } from "../lib/debugger-client";
 import { cropScreenshot } from "../lib/image-utils";
 import { PRIVACY_REMINDER_LINE } from "../lib/privacy";
 import {
@@ -131,6 +132,12 @@ export interface SidePanelDeps {
    */
   queryActiveTab?: () => Promise<chrome.tabs.Tab | undefined>;
   /**
+   * Activate (and focus the window of) a tab — used by the "Go to
+   * recording tab" offer button. Defaults to chrome.tabs.update +
+   * chrome.windows.update in production. Injectable for tests.
+   */
+  activateTab?: (tabId: number) => Promise<void>;
+  /**
    * chrome.runtime.onMessage shim. The side panel listens for:
    *  - `PICK_ELEMENT_RESULT` from the content script after a "Pick
    *    element" round-trip,
@@ -222,6 +229,22 @@ export async function mountSidePanel(
   // in paused state without panel re-mount. Updated by the
   // PENDING_HANDOFF_CHANGED runtime message and on initial mount.
   let listenerAttached = false;
+  // Feature #7: when an in-flight session is recording a DIFFERENT tab
+  // than the one this panel is bound to, this holds that recording tab's
+  // id and applyControlsModel() renders the "switch recording here"
+  // offer instead of the normal controls. null = this panel is on the
+  // recording tab (or there is no session) → normal controls.
+  let recordingElsewhereTabId: number | null = null;
+  // Feature #7: the tab this panel document belongs to, resolved once
+  // while the panel is VISIBLE (a per-tab panel document loads when it
+  // is first shown on its tab, so the window's active tab at that moment
+  // IS this panel's tab) and cached for the document's lifetime. Hidden
+  // panel documents stay alive when the user switches tabs, so resolving
+  // "own tab" through the active-tab query on every refresh would return
+  // whatever tab the user happens to be on — corrupting the offer state
+  // of every hidden panel that receives a broadcast or focus event.
+  let ownTabId: number | null = null;
+  let ownTabIsExtensionPage = false;
 
   const scrollAnchor = new ScrollAnchor();
 
@@ -512,6 +535,83 @@ export async function mountSidePanel(
   // Async error line — shows the last error from a loading action.
   const asyncErrorLine = el("span", { id: "async-error", class: "async-error" });
 
+  // ─── Feature #7: "switch recording here" offer ────────────────────
+  // Shown when this panel sits on a tab the session is NOT recording.
+  // The user explicitly chooses to move the recording here or to jump
+  // back to the recording tab — DeskCheck never follows tabs implicitly.
+  const switchOfferPanel = el("section", {
+    id: "switch-offer",
+    class: "switch-offer",
+    role: "region",
+    "aria-label": "Move recording to this tab",
+  });
+  const switchOfferText = el("p", { class: "switch-offer-text" }, [
+    "DeskCheck is recording a different tab.",
+  ]);
+  const switchOfferActions = el("div", { class: "sp-row" });
+  const switchHereBtn = el(
+    "button",
+    { id: "switch-recording-here-btn", class: "sp-btn primary" },
+    ["Switch recording here"],
+  ) as HTMLButtonElement;
+  const gotoRecordingBtn = el(
+    "button",
+    { id: "goto-recording-tab-btn", class: "sp-btn" },
+    ["Go to recording tab"],
+  ) as HTMLButtonElement;
+  switchOfferActions.appendChild(switchHereBtn);
+  switchOfferActions.appendChild(gotoRecordingBtn);
+  switchOfferPanel.appendChild(switchOfferText);
+  switchOfferPanel.appendChild(switchOfferActions);
+
+  switchHereBtn.addEventListener("click", async () => {
+    switchHereBtn.disabled = true;
+    asyncErrorLine.textContent = "";
+    try {
+      const own = await resolveOwnTabId();
+      if (own == null) {
+        asyncErrorLine.textContent = "Could not determine this tab.";
+        return;
+      }
+      const res = (await sendMessage({
+        type: "SWITCH_RECORDING_TAB",
+        tabId: own,
+      })) as { switched?: boolean; warnings?: string[] } | undefined;
+      if (res?.switched) {
+        recordingElsewhereTabId = null;
+        await refreshSessionState();
+      } else {
+        asyncErrorLine.textContent =
+          res?.warnings?.[0] ?? "Could not switch recording to this tab.";
+      }
+    } catch (e) {
+      asyncErrorLine.textContent = `Switch failed: ${String(e)}`;
+    } finally {
+      switchHereBtn.disabled = false;
+    }
+  });
+
+  gotoRecordingBtn.addEventListener("click", async () => {
+    const recId = recordingElsewhereTabId;
+    if (recId == null) return;
+    try {
+      if (deps.activateTab) {
+        await deps.activateTab(recId);
+        return;
+      }
+      // The recording tab may live in another window — activating it is
+      // invisible unless that window is focused too.
+      const tab = await chrome.tabs.update(recId, { active: true });
+      if (tab?.windowId != null) {
+        await chrome.windows.update(tab.windowId, { focused: true });
+      }
+    } catch {
+      // The recording tab may have been closed — nothing to focus.
+      // (In jsdom tests without an activateTab shim the bare `chrome`
+      // reference lands here as a ReferenceError.)
+    }
+  });
+
   // New-events chip — shown when the user has scrolled away from the bottom.
   const newEventsChip = el("button", { id: "new-events-chip", class: "new-events-chip hidden sp-btn" });
   newEventsChip.addEventListener("click", () => {
@@ -660,6 +760,20 @@ export async function mountSidePanel(
   };
   onWindowFocusChanged.addListener(focusListener);
 
+  // Same-window refetch (feature #7): a hidden panel document survives
+  // tab switches, and no chrome event fires panel-side when the user
+  // flips back to its tab. Re-evaluate the session/offer state whenever
+  // this document becomes visible again so a switch that happened while
+  // hidden is reflected immediately.
+  const visibilityListener = () => {
+    if (document.visibilityState === "visible") {
+      void refreshSessionState();
+    }
+  };
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", visibilityListener);
+  }
+
   // Runtime message listener — handles PICK_ELEMENT_RESULT (from the
   // content script after element picker) and SCREENSHOT_APPENDED (so
   // newly captured screenshot bytes can be rendered inline as
@@ -682,6 +796,10 @@ export async function mountSidePanel(
       // confused when the zip lands in Downloads instead of at the
       // attached listener.
       asyncErrorLine.textContent = msg.message;
+      return;
+    }
+    if (msg.type === "RECORDING_TAB_CHANGED") {
+      void refreshSessionState();
       return;
     }
     if (msg.type === "PENDING_HANDOFF_CHANGED") {
@@ -1017,10 +1135,75 @@ export async function mountSidePanel(
     }
   }
 
+  /**
+   * Feature #7: the tab id this panel document belongs to. Resolved via
+   * the active-tab query, but ONLY while this document is visible — a
+   * visible per-tab panel is by definition docked beside the window's
+   * active tab. The result is cached for the document's lifetime so
+   * later refreshes (broadcasts, focus changes) arriving while the
+   * panel is hidden cannot mis-resolve it to whichever tab the user is
+   * on. Returns null when the identity is (still) unknown.
+   */
+  async function resolveOwnTabId(): Promise<number | null> {
+    if (ownTabId != null) return ownTabId;
+    if (
+      typeof document !== "undefined" &&
+      document.visibilityState === "hidden"
+    ) {
+      return null;
+    }
+    const tab = await getActiveTab();
+    if (!tab || tab.id == null) return null;
+    ownTabId = tab.id;
+    ownTabIsExtensionPage = isExtensionUrl(tab.url);
+    return ownTabId;
+  }
+
+  /**
+   * Feature #7: recompute whether this panel is sitting on the recording
+   * tab. `recordingTabId` is the in-flight session's tab (or null when
+   * there is no session). The offer is shown ONLY when this panel is
+   * docked beside a real web tab that differs from the recording tab.
+   *
+   * A standalone panel page — opened as a `chrome-extension://` tab (the
+   * CLI-launched panel, or the e2e harness that mounts the panel as a
+   * regular page) — is its own "active tab" and must never trigger the
+   * offer: there is no meaningful web tab to switch recording to. We
+   * detect that case by the resolved tab's URL and bail out.
+   *
+   * When the panel's own identity cannot be resolved (hidden before the
+   * first successful resolution, or a transient tabs.query failure) the
+   * previous binding is KEPT — failing open to null here would render
+   * the full recording controls on a non-recording tab.
+   */
+  async function updateRecordingBinding(
+    recordingTabId: number | null,
+  ): Promise<void> {
+    if (recordingTabId == null) {
+      recordingElsewhereTabId = null;
+      return;
+    }
+    const own = await resolveOwnTabId();
+    if (own == null) {
+      return;
+    }
+    if (ownTabIsExtensionPage) {
+      recordingElsewhereTabId = null;
+      return;
+    }
+    recordingElsewhereTabId = own !== recordingTabId ? recordingTabId : null;
+  }
+
   async function refreshSessionState() {
     try {
       const result = (await sendMessage({ type: "GET_SESSION_STATE" })) as
-        | { recording?: boolean; paused?: boolean; status?: SessionStatus; piiMode?: PiiCaptureMode }
+        | {
+            recording?: boolean;
+            paused?: boolean;
+            status?: SessionStatus;
+            piiMode?: PiiCaptureMode;
+            activeTabId?: number | null;
+          }
         | undefined;
       if (result?.status) {
         transitionTo(result.status);
@@ -1036,6 +1219,16 @@ export async function mountSidePanel(
         );
         if (radio) radio.checked = true;
       }
+      // Feature #7: recompute the offer binding AFTER status/pii so the
+      // own-tab resolution (async) does not shift the render timing of the
+      // common no-session path. Re-render only if the binding changed.
+      const recordingTabId =
+        result?.recording ? result?.activeTabId ?? null : null;
+      const prevBinding = recordingElsewhereTabId;
+      await updateRecordingBinding(recordingTabId);
+      if (recordingElsewhereTabId !== prevBinding) {
+        applyControlsModel();
+      }
     } catch {
       // SW may be waking up; non-fatal.
     }
@@ -1048,10 +1241,42 @@ export async function mountSidePanel(
       hideClearDialog();
       clearSelectedElement();
     }
+    // Feature #7: the offer only makes sense while a session is in
+    // flight. Session-end paths (stop, clear, recording-tab closed)
+    // reach panels through this transition without a binding refresh,
+    // so a stale offer must be dropped here or it would permanently
+    // replace the idle controls.
+    if (status === "idle" || status === "stopped") {
+      recordingElsewhereTabId = null;
+    }
     applyControlsModel();
   }
 
+  function renderSwitchOffer() {
+    clearChildren(toolbar);
+    clearChildren(controls);
+    clearChildren(switchOfferActions);
+    switchOfferActions.appendChild(switchHereBtn);
+    switchOfferActions.appendChild(gotoRecordingBtn);
+    switchOfferActions.appendChild(asyncErrorLine);
+    toolbar.appendChild(switchOfferPanel);
+  }
+
   function applyControlsModel() {
+    // Feature #7: when this panel is not on the recording tab, show the
+    // switch offer and nothing else. Inert in every pre-feature-7 path —
+    // recordingElsewhereTabId is only set when GET_SESSION_STATE reports
+    // an in-flight session bound to a different tab than this panel.
+    // Belt-and-braces: also require an in-flight status so a stale
+    // binding can never shadow the pre/post-session controls.
+    if (
+      recordingElsewhereTabId != null &&
+      (status === "running" || status === "paused")
+    ) {
+      renderSwitchOffer();
+      return;
+    }
+
     const model: ControlVisibility = buildControlsModel({
       status,
       hasResidualState: hasResidualState(),
@@ -1376,6 +1601,7 @@ export async function mountSidePanel(
       document.removeEventListener("keydown", escapeHandler);
       onChanged.removeListener(sessionListener);
       onWindowFocusChanged.removeListener(focusListener);
+      document.removeEventListener("visibilitychange", visibilityListener);
       if (deps.onRuntimeMessage) {
         deps.onRuntimeMessage.removeListener(runtimeListener);
       } else if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {

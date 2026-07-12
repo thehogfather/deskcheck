@@ -1,5 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { isExtensionUrl, formatStackTrace, sanitizeHeaders } from "./debugger-client";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  isExtensionUrl,
+  formatStackTrace,
+  sanitizeHeaders,
+  DebuggerClient,
+} from "./debugger-client";
+import type { TimelineEventInput } from "../types";
 
 describe("isExtensionUrl", () => {
   it("returns true for chrome-extension:// URLs", () => {
@@ -99,5 +105,175 @@ describe("sanitizeHeaders", () => {
   it("passes through non-sensitive headers unchanged", () => {
     const headers = { "Content-Type": "text/plain", "X-Custom": "value" };
     expect(sanitizeHeaders(headers)).toEqual(headers);
+  });
+});
+
+// ── Feature #7: DebuggerClient.moveTo — opt-in tab switching ──
+describe("DebuggerClient.moveTo", () => {
+  type Listener = (...args: unknown[]) => void;
+
+  interface FakeDebugger {
+    attach: ReturnType<typeof vi.fn>;
+    detach: ReturnType<typeof vi.fn>;
+    sendCommand: ReturnType<typeof vi.fn>;
+    onEvent: { addListener: (l: Listener) => void; removeListener: (l: Listener) => void };
+    onDetach: { addListener: (l: Listener) => void; removeListener: (l: Listener) => void };
+    _eventListeners: Listener[];
+    _detachListeners: Listener[];
+  }
+
+  let fakeDebugger: FakeDebugger;
+
+  function installFakeChrome(): void {
+    const eventListeners: Listener[] = [];
+    const detachListeners: Listener[] = [];
+    fakeDebugger = {
+      attach: vi.fn().mockResolvedValue(undefined),
+      detach: vi.fn().mockResolvedValue(undefined),
+      sendCommand: vi.fn().mockResolvedValue(undefined),
+      onEvent: {
+        addListener: (l) => eventListeners.push(l),
+        removeListener: (l) => {
+          const i = eventListeners.indexOf(l);
+          if (i >= 0) eventListeners.splice(i, 1);
+        },
+      },
+      onDetach: {
+        addListener: (l) => detachListeners.push(l),
+        removeListener: (l) => {
+          const i = detachListeners.indexOf(l);
+          if (i >= 0) detachListeners.splice(i, 1);
+        },
+      },
+      _eventListeners: eventListeners,
+      _detachListeners: detachListeners,
+    };
+    // @ts-expect-error — minimal chrome stub for the debugger surface.
+    globalThis.chrome = { debugger: fakeDebugger };
+  }
+
+  /** Fire a CDP event to all registered onEvent listeners. */
+  function emitCdp(tabId: number, method: string, params: Record<string, unknown>): void {
+    for (const l of fakeDebugger._eventListeners) l({ tabId }, method, params);
+  }
+
+  /** A Network.responseReceived 500 — the client emits a network_error for it. */
+  function networkError(tabId: number): void {
+    emitCdp(tabId, "Network.requestWillBeSent", {
+      requestId: `r-${tabId}`,
+      request: { url: `https://t${tabId}.example.com/x`, method: "GET" },
+    });
+    emitCdp(tabId, "Network.responseReceived", {
+      requestId: `r-${tabId}`,
+      response: { status: 500, statusText: "err", url: `https://t${tabId}.example.com/x` },
+    });
+  }
+
+  beforeEach(() => {
+    installFakeChrome();
+  });
+
+  afterEach(() => {
+    // @ts-expect-error — tear down the stub between tests.
+    delete globalThis.chrome;
+    vi.restoreAllMocks();
+  });
+
+  it("detaches the old tab, attaches the new tab, and re-enables CDP domains", async () => {
+    const client = new DebuggerClient();
+    await client.attach(1, "https://t1.example.com", () => {});
+    fakeDebugger.attach.mockClear();
+    fakeDebugger.detach.mockClear();
+    fakeDebugger.sendCommand.mockClear();
+
+    await client.moveTo(2, "https://t2.example.com");
+
+    expect(fakeDebugger.detach).toHaveBeenCalledWith({ tabId: 1 });
+    expect(fakeDebugger.attach).toHaveBeenCalledWith({ tabId: 2 }, "1.3");
+    const enabled = fakeDebugger.sendCommand.mock.calls.map((c) => c[1]);
+    expect(enabled).toEqual(["Network.enable", "Log.enable", "Runtime.enable"]);
+  });
+
+  it("routes events from the new tab and drops events from the old tab after a move", async () => {
+    const events: TimelineEventInput[] = [];
+    const client = new DebuggerClient();
+    await client.attach(1, "https://t1.example.com", (e) => events.push(e));
+
+    await client.moveTo(2, "https://t2.example.com");
+
+    networkError(2); // new tab → captured
+    networkError(1); // old tab → ignored
+
+    const tabs = events.map((e) => (e.type === "network_error" ? e.url : null));
+    expect(tabs).toContain("https://t2.example.com/x");
+    expect(tabs).not.toContain("https://t1.example.com/x");
+  });
+
+  it("does NOT emit a capture-interrupted warning for its own intentional detach", async () => {
+    const events: TimelineEventInput[] = [];
+    const client = new DebuggerClient();
+    await client.attach(1, "https://t1.example.com", (e) => events.push(e));
+
+    // Simulate Chrome firing onDetach for tab 1 while moveTo is detaching
+    // it — moveTo awaits detach(), and our fake resolves synchronously, so
+    // fire the detach callback from inside the detach mock.
+    fakeDebugger.detach.mockImplementationOnce(async ({ tabId }: { tabId: number }) => {
+      for (const l of fakeDebugger._detachListeners) l({ tabId }, "target_closed");
+    });
+
+    await client.moveTo(2, "https://t2.example.com");
+
+    const warnings = events.filter(
+      (e) => e.type === "console_error" && e.message.includes("capture interrupted"),
+    );
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("propagates a failed attach and leaves no tab attached for clean retry", async () => {
+    const client = new DebuggerClient();
+    await client.attach(1, "https://t1.example.com", () => {});
+    fakeDebugger.attach.mockRejectedValueOnce(new Error("Another debugger is already attached"));
+
+    await expect(client.moveTo(2, "https://t2.example.com")).rejects.toThrow();
+
+    // A subsequent moveTo to a healthy tab must still work (attachedTabId
+    // was left null, so no stale detach blocks the retry).
+    fakeDebugger.detach.mockClear();
+    await client.moveTo(3, "https://t3.example.com");
+    expect(fakeDebugger.attach).toHaveBeenLastCalledWith({ tabId: 3 }, "1.3");
+    // Nothing to detach — the failed attach left us unattached.
+    expect(fakeDebugger.detach).not.toHaveBeenCalled();
+  });
+
+  it("releases the new tab when attach succeeds but a domain enable fails", async () => {
+    const client = new DebuggerClient();
+    await client.attach(1, "https://t1.example.com", () => {});
+    fakeDebugger.detach.mockClear();
+    // attach to tab 2 succeeds, but the first enable rejects (e.g. the
+    // tab navigated to a restricted page in the gap).
+    fakeDebugger.sendCommand.mockRejectedValueOnce(new Error("Cannot access a chrome:// URL"));
+
+    await expect(client.moveTo(2, "https://t2.example.com")).rejects.toThrow();
+
+    // The half-initialised attachment must be released — otherwise tab 2
+    // stays debugger-attached but untracked, and every later attach to it
+    // fails with "Another debugger is already attached".
+    expect(fakeDebugger.detach).toHaveBeenCalledWith({ tabId: 2 });
+
+    // detach() must be a no-op now (nothing tracked as attached).
+    fakeDebugger.detach.mockClear();
+    await client.detach();
+    expect(fakeDebugger.detach).not.toHaveBeenCalled();
+  });
+
+  it("releases the tab when the initial attach() fails on a domain enable", async () => {
+    const client = new DebuggerClient();
+    fakeDebugger.sendCommand.mockRejectedValueOnce(new Error("boom"));
+
+    await expect(
+      client.attach(1, "https://t1.example.com", () => {}),
+    ).rejects.toThrow();
+
+    expect(fakeDebugger.detach).toHaveBeenCalledWith({ tabId: 1 });
   });
 });

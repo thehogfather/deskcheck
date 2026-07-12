@@ -78,6 +78,8 @@ export function eventTypeLabel(event: TimelineEvent): string {
       return "Paused";
     case "session_resumed":
       return "Resumed";
+    case "tab_switch":
+      return "Tab switch";
     default: {
       const _exhaustive: never = event;
       return _exhaustive;
@@ -122,6 +124,8 @@ function eventDetail(event: TimelineEvent): string {
       return "capture suspended";
     case "session_resumed":
       return "capture resumed";
+    case "tab_switch":
+      return `${event.from_url} → ${event.to_url}`;
   }
 }
 
@@ -143,6 +147,7 @@ function eventAccent(event: TimelineEvent): RowAccent {
       return "screenshot";
     case "session_paused":
     case "session_resumed":
+    case "tab_switch":
       return "info";
     default: {
       const _exhaustive: never = event;
@@ -223,6 +228,7 @@ export function assertExhaustiveSidePanelEvent(e: TimelineEvent): void {
     case "screenshot":
     case "session_paused":
     case "session_resumed":
+    case "tab_switch":
       return;
     default: {
       const _exhaustive: never = e;

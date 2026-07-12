@@ -110,6 +110,90 @@ describe("buildSummary", () => {
     const summary = buildSummary([]);
     expect(summary.total_events).toBe(0);
     expect(summary.pages_visited).toEqual([]);
+    expect(summary.tabs).toEqual([]);
+  });
+
+  // ── Feature #7: per-tab breakdown ──
+  it("reports a single tab segment for a single-tab session", () => {
+    const summary = buildSummary(makeEvents());
+    expect(summary.tabs).toEqual([
+      { url: "https://example.com", events: 6 },
+    ]);
+  });
+
+  it("splits the timeline into per-tab segments at each tab_switch", () => {
+    const events: TimelineEvent[] = [
+      {
+        seq: 1,
+        timestamp: "2026-04-06T10:00:01.000Z",
+        type: "interaction",
+        subtype: "click",
+        page_url: "https://a.example.com",
+      },
+      {
+        seq: 2,
+        timestamp: "2026-04-06T10:00:02.000Z",
+        type: "interaction",
+        subtype: "click",
+        page_url: "https://a.example.com",
+      },
+      {
+        seq: 3,
+        timestamp: "2026-04-06T10:00:03.000Z",
+        type: "tab_switch",
+        from_tab_id: 1,
+        from_url: "https://a.example.com",
+        to_tab_id: 2,
+        to_url: "https://b.example.com",
+        page_url: "https://b.example.com",
+      },
+      {
+        seq: 4,
+        timestamp: "2026-04-06T10:00:04.000Z",
+        type: "interaction",
+        subtype: "click",
+        page_url: "https://b.example.com",
+      },
+    ];
+    const summary = buildSummary(events);
+    // First segment counts its two clicks plus the tab_switch marker
+    // (the switch closes the from-tab segment). Second segment counts
+    // the one click that followed.
+    expect(summary.tabs).toEqual([
+      { url: "https://a.example.com", events: 3 },
+      { url: "https://b.example.com", events: 1 },
+    ]);
+  });
+
+  it("labels a segment seeded by a tab_switch with the from-tab URL", () => {
+    // A session can begin with a switch (start on tab A, switch to B
+    // before anything else is captured). The switch marker belongs to
+    // the from-tab segment, so that segment must carry A's URL — the
+    // event's page_url is B's.
+    const events: TimelineEvent[] = [
+      {
+        seq: 1,
+        timestamp: "2026-04-06T10:00:01.000Z",
+        type: "tab_switch",
+        from_tab_id: 1,
+        from_url: "https://a.example.com",
+        to_tab_id: 2,
+        to_url: "https://b.example.com",
+        page_url: "https://b.example.com",
+      },
+      {
+        seq: 2,
+        timestamp: "2026-04-06T10:00:02.000Z",
+        type: "interaction",
+        subtype: "click",
+        page_url: "https://b.example.com",
+      },
+    ];
+    const summary = buildSummary(events);
+    expect(summary.tabs).toEqual([
+      { url: "https://a.example.com", events: 1 },
+      { url: "https://b.example.com", events: 1 },
+    ]);
   });
 });
 
@@ -124,7 +208,7 @@ describe("exportSession", () => {
     const json = JSON.parse(
       strFromU8(unzipped["session.json"]),
     ) as SessionExport;
-    expect(json.schema_version).toBe("1.2.0");
+    expect(json.schema_version).toBe("1.3.0");
     expect(json.timeline.length).toBe(6);
     expect(json.summary.total_events).toBe(6);
   });

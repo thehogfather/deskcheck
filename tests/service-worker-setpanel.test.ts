@@ -36,9 +36,12 @@
 //     entry with the same path as global is safe, because Chrome
 //     treats "modify existing" differently from "create fresh".
 //
-//   - While a session is active, action clicks on non-recording tabs
-//     route the user back to the recording tab via chrome.tabs.update
-//     instead of opening a second panel.
+//   - Feature #7 (bounce-with-offer): while a session is active, an
+//     action click on a NON-recording tab opens the panel ON that tab
+//     so it can render the "Switch recording here" offer. The user is
+//     NOT routed back to the recording tab, and the recording tab's
+//     panel is left enabled so they can flip back to it. (This replaces
+//     the pre-feature-7 route-back behaviour.)
 //
 //   - START_SESSION and STOP_SESSION do NOT touch setOptions. Panel
 //     binding is decided at open time, not at recording start time.
@@ -404,7 +407,7 @@ describe("service worker bind-on-open side panel (matrix #2b)", () => {
     expect(disabledTabIds).not.toContain(99);
   });
 
-  it("routes action clicks back to the recording tab while a session is active", async () => {
+  it("offers to switch (does NOT route back) on a non-recording tab during a session (feature #7)", async () => {
     // Bind + start a session on tab 42.
     mockChrome.tabs.query.mockResolvedValue([{ id: 42 }, { id: 99 }]);
     actionClickHandler({ id: 42 });
@@ -417,16 +420,25 @@ describe("service worker bind-on-open side panel (matrix #2b)", () => {
       piiMode: "full",
     });
     mockChrome.sidePanel.open.mockClear();
+    mockChrome.sidePanel.setOptions.mockClear();
     mockChrome.tabs.update.mockClear();
 
     // User clicks the action icon from a DIFFERENT tab (99).
     actionClickHandler({ id: 99 });
     await flushAsync();
 
-    // Panel must be opened on the RECORDING tab (42), not 99.
-    expect(mockChrome.sidePanel.open).toHaveBeenCalledWith({ tabId: 42 });
-    // Chrome must be asked to foreground the recording tab.
-    expect(mockChrome.tabs.update).toHaveBeenCalledWith(42, { active: true });
+    // Panel opens ON the clicked tab (99) so it can render the switch
+    // offer — NOT routed back to the recording tab (42).
+    expect(mockChrome.sidePanel.open).toHaveBeenCalledWith({ tabId: 99 });
+    expect(mockChrome.sidePanel.open).not.toHaveBeenCalledWith({ tabId: 42 });
+    // The user is NOT yanked back to the recording tab.
+    expect(mockChrome.tabs.update).not.toHaveBeenCalled();
+    // The recording tab's panel stays enabled (not scoped away) so the
+    // user can flip back to it — tab 42 is never disabled.
+    const disabled42 = mockChrome.sidePanel.setOptions.mock.calls
+      .map((c) => c[0] as { tabId?: number; enabled?: boolean })
+      .some((c) => c.tabId === 42 && c.enabled === false);
+    expect(disabled42).toBe(false);
   });
 
   it("does NOT touch sidePanel.setOptions on START_SESSION", async () => {

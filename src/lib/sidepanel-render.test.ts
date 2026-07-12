@@ -26,6 +26,7 @@ const EXPECTED_DISCRIMINATORS: ReadonlySet<TimelineEvent["type"]> = new Set([
   "screenshot",
   "session_paused",
   "session_resumed",
+  "tab_switch",
 ]);
 
 const FIXED_NOW = new Date("2026-04-07T15:30:00.000Z");
@@ -72,6 +73,15 @@ function fixture(type: TimelineEvent["type"]): TimelineEvent {
       return { ...base, type };
     case "session_resumed":
       return { ...base, type };
+    case "tab_switch":
+      return {
+        ...base,
+        type,
+        from_tab_id: 1,
+        from_url: "https://example.com/",
+        to_tab_id: 2,
+        to_url: "https://other.example.com/",
+      };
   }
 }
 
@@ -147,7 +157,7 @@ describe("eventToRow exhaustiveness (matrix #6b)", () => {
   it("EXPECTED_DISCRIMINATORS matches the TimelineEvent union", () => {
     // If you're touching this test, also update agents-doc, agents-doc.test
     // and the side-panel render module.
-    expect(EXPECTED_DISCRIMINATORS.size).toBe(9);
+    expect(EXPECTED_DISCRIMINATORS.size).toBe(10);
   });
 });
 

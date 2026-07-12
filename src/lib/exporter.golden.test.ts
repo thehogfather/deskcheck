@@ -78,8 +78,8 @@ describe("exportSessionStreaming — golden-file schema regression", () => {
   // never contains any handoff-related keys — structural proof that the
   // handoff config (which lives in its own chrome.storage.local key,
   // NOT in SessionMetadata) cannot leak into exported session data.
-  it("D10 — schema_version is 1.2.0 and exported zip contains no handoff/listener/token fields", async () => {
-    expect(SCHEMA_VERSION).toBe("1.2.0");
+  it("D10 — schema_version is 1.3.0 and exported zip contains no handoff/listener/token fields", async () => {
+    expect(SCHEMA_VERSION).toBe("1.3.0");
 
     const store = new FakeSessionStore();
     const meta: SessionMetadata = {
@@ -99,7 +99,7 @@ describe("exportSessionStreaming — golden-file schema regression", () => {
     const zipBytes = await exportSessionStreaming(store, meta);
     const unzipped = unzipSync(zipBytes);
     const sessionJson = strFromU8(unzipped["session.json"]);
-    expect(sessionJson).toContain('"schema_version": "1.2.0"');
+    expect(sessionJson).toContain('"schema_version": "1.3.0"');
     // Structural leak-absence pin: these keys must never surface in
     // the exported session.json for a handoff-configured session.
     expect(sessionJson).not.toContain("listener_url");
@@ -152,8 +152,8 @@ describe("exportSessionStreaming — golden-file schema regression", () => {
     expect(Array.from(zipA)).toEqual(Array.from(zipB));
   });
 
-  it("DoD-13 — SCHEMA_VERSION constant is unchanged at 1.2.0 (regression pin)", () => {
-    expect(SCHEMA_VERSION).toBe("1.2.0");
+  it("DoD-13 — SCHEMA_VERSION constant is unchanged at 1.3.0 (regression pin)", () => {
+    expect(SCHEMA_VERSION).toBe("1.3.0");
   });
 
   it("strips tab_id from the exported session (defence against regression)", async () => {

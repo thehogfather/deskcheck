@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "session": {
     "id": "golden-session-id",
     "start_time": "2026-04-07T12:00:00.000Z",
@@ -151,6 +151,12 @@
     "pages_visited": [
       "https://example.com/",
       "https://example.com/app"
+    ],
+    "tabs": [
+      {
+        "url": "https://example.com/",
+        "events": 11
+      }
     ]
   }
 }
