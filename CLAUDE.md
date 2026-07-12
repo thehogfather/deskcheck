@@ -39,13 +39,16 @@ Schema version (`schema_version` field) follows semver. Changes to the schema mu
 - **DOM tests**: use `// @vitest-environment jsdom` directive
 - **Chrome API integration**: tested manually via extension load
 
-## Versioning
+## Versioning & Releases
 
-Semver. `manifest.json` and `package.json` versions must always match.
+Semver. `manifest.json` and `package.json` versions must always match (`make verify-version` checks this; CI enforces it).
 
 ```
-make bump-patch   # 0.1.0 → 0.1.1
-make bump-minor   # 0.1.0 → 0.2.0
+make bump-patch     # 0.1.0 → 0.1.1 (also bump-minor / bump-major); syncs manifest.json
+make package        # build + zip → build/deskcheck-vX.Y.Z.zip
+make release-patch  # full release from main: guards, tests, bump, changelog, commit, tag
 ```
 
-Tag releases: `git tag -a v0.2.0 -m "v0.2.0"`
+Releases are cut with `make release-{patch,minor,major}` (see `scripts/release.sh`), then published by pushing: `git push origin main --follow-tags`. The tag push triggers `.github/workflows/release.yml`, which verifies the tag matches the manifest versions, builds, packages, and creates a GitHub Release with the zip attached.
+
+Release notes and `CHANGELOG.md` sections are generated from conventional commit subjects since the last tag by `scripts/release-notes.mjs` (feat/fix/perf surface; chore/docs/test/refactor/ci are excluded; `type!:` marks breaking changes). Write commit subjects accordingly — they are the changelog.

@@ -25,9 +25,19 @@ The export is designed to be self-contained and easy for an AI assistant (or a c
 
 ## Install
 
-DeskCheck is not yet on the Chrome Web Store. To install locally:
+DeskCheck is aimed at engineers, so it isn't on the Chrome Web Store — prebuilt packages ship as GitHub Releases instead.
 
-1. Clone this repo
+### From a release (recommended)
+
+1. Download `deskcheck-vX.Y.Z.zip` from the [latest release](https://github.com/thehogfather/deskcheck/releases/latest)
+2. Unzip it — you get a `deskcheck/` folder
+3. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the `deskcheck/` folder
+
+Keep the folder where it is — Chrome loads the extension from that path. To upgrade, download the new release zip, unzip it over the old folder, and click the reload icon on the extension card.
+
+### From source
+
+1. Clone this repo and run `npm install`
 2. Run `make build`
 3. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the `dist/` directory
 
@@ -50,6 +60,17 @@ make clean       # rm -rf dist
 ```
 
 After `make build`, reload the extension at `chrome://extensions` to pick up changes.
+
+### Releasing
+
+Releases are cut from `main` with a single command:
+
+```sh
+make release-patch   # or release-minor / release-major
+git push origin main --follow-tags
+```
+
+The `release-*` target verifies the tree is clean and in sync with `origin/main`, runs typecheck + tests, bumps `package.json` and `manifest.json` together, prepends a generated section (from conventional commits since the last tag) to `CHANGELOG.md`, and creates a `chore(release)` commit plus an annotated `vX.Y.Z` tag. Pushing the tag triggers the [Release workflow](.github/workflows/release.yml), which builds the extension, zips it, and publishes a GitHub Release with generated notes and the installable `deskcheck-vX.Y.Z.zip` attached.
 
 ## Architecture
 
