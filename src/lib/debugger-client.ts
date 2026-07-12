@@ -267,7 +267,7 @@ export class DebuggerClient {
     source: chrome.debugger.Debuggee,
     reason: string,
   ) {
-    // A move() is detaching the old tab on purpose — not a capture
+    // A moveTo() is detaching the old tab on purpose — not a capture
     // interruption. Stay silent and keep the session alive.
     if (this.isMoving) return;
     if (source.tabId !== this.attachedTabId) return;

@@ -799,9 +799,6 @@ export async function mountSidePanel(
       return;
     }
     if (msg.type === "RECORDING_TAB_CHANGED") {
-      // Feature #7: the recording pointer moved. Re-evaluate whether this
-      // panel is still on the recording tab and re-render (showing or
-      // clearing the switch offer as needed).
       void refreshSessionState();
       return;
     }
@@ -1255,11 +1252,6 @@ export async function mountSidePanel(
     applyControlsModel();
   }
 
-  /**
-   * Feature #7: replace the toolbar/controls with the "switch recording
-   * here" offer. Called from applyControlsModel when this panel is on a
-   * non-recording tab during an active session.
-   */
   function renderSwitchOffer() {
     clearChildren(toolbar);
     clearChildren(controls);

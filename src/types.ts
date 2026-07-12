@@ -137,8 +137,9 @@ export interface SessionResumedEvent extends BaseEvent {
  * Written when the user opts to move the active recording from one tab
  * to another (feature #7). The recording pointer — chrome.debugger
  * attachment, content-script injection, and screenshot target — moves
- * to `to_tab_id` at this timestamp. Events before this marker belong to
- * `from_tab_id`; events after belong to `to_tab_id`. `page_url` mirrors
+ * to `to_tab_id` at this timestamp. Events since the previous marker
+ * (or session start) belong to `from_tab_id`; events after this marker
+ * belong to `to_tab_id` until the next marker. `page_url` mirrors
  * `to_url` so the base-field invariant ("the page the event happened on")
  * points at the tab the recording lives on once the switch completes.
  *
@@ -262,9 +263,9 @@ export type Message =
   // Feature #7: broadcast after the recording pointer moves to a new
   // tab so every open side panel can re-evaluate whether it is sitting
   // on the recording tab (and show/clear the "switch recording here"
-  // offer accordingly). `tabId` is the new recording tab, or null when
-  // there is no in-flight session.
-  | { type: "RECORDING_TAB_CHANGED"; tabId: number | null }
+  // offer accordingly). Only sent on a successful switch — session end
+  // is signalled via session-storage changes, not this message.
+  | { type: "RECORDING_TAB_CHANGED"; tabId: number }
   // Feature #14 phase 1: the service worker broadcasts this when the CLI
   // handoff path fell through (listener unreachable, rejected, or the
   // final download fallback also failed). The side panel renders the

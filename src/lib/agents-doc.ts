@@ -254,9 +254,10 @@ Added in schema 1.2.0.
 The user explicitly moved the active recording from one tab to another.
 DeskCheck binds a recording to a single tab; this marker is the only way
 the bound tab changes mid-session, and it is always user-initiated (the
-extension never follows the user across tabs implicitly). All capture
-before this marker came from \`from_tab_id\`; all capture after it comes
-from \`to_tab_id\`.
+extension never follows the user across tabs implicitly). Capture since
+the previous \`tab_switch\` marker (or session start) came from
+\`from_tab_id\`; capture after this marker comes from \`to_tab_id\` until
+the next marker.
 
 | Field | Type | Meaning |
 |---|---|---|

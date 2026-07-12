@@ -128,9 +128,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // The side panel is bound to the tab the user summoned it from. From
 // the moment the toolbar action is clicked the panel is visible ONLY
 // on that one tab — switching to another tab hides it, returning to
-// the bound tab brings it back. A recording session does not change
+// the bound tab brings it back. Starting a recording does not change
 // the binding; the panel's home is decided at open time, not at
-// recording start time.
+// recording start time. The one exception is a feature-7 tab switch:
+// a successful SWITCH_RECORDING_TAB rescopes the binding to the new
+// recording tab.
 //
 // How this plays with Chrome's sidePanel API (empirically verified
 // by e2e/sidepanel-debug.spec.ts and grounded in
@@ -164,8 +166,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 //      reappears when the user returns to the bound tab.
 //
 //   5. If a session is active and the user clicks the action on a
-//      different tab, the handler routes them back to the
-//      recording tab rather than migrating the panel mid-session.
+//      different tab, the panel opens ON that tab and renders the
+//      "switch recording here" offer (feature #7). The recording
+//      tab's panel stays enabled so the user can flip back; the
+//      offer tab is tracked in offerPanelTabIds and scoped away
+//      again when the offer resolves or the session ends.
 //
 // Pinned by tests/service-worker-setpanel.test.ts and diagnosed by
 // e2e/sidepanel-debug.spec.ts.
@@ -197,10 +202,10 @@ async function releaseOfferPanels(keepTabId: number | null): Promise<void> {
   }
 }
 
-// Enable the real side panel on a specific tab as a per-tab override
-// of the manifest default stub. The distinct path is what makes
-// Chrome register this as a per-tab panel instance (so the
-// documented per-tab hide/show on tab switch actually kicks in).
+// Enable the side panel on a specific tab. There is no manifest
+// default (see the bind-on-open header) — a per-tab setOptions with an
+// explicit path is what makes Chrome register a per-tab panel instance
+// (so the documented per-tab hide/show on tab switch actually kicks in).
 function enablePanelOnTab(tabId: number): Promise<void> {
   if (!chrome.sidePanel?.setOptions) return Promise.resolve();
   return chrome.sidePanel
@@ -255,9 +260,8 @@ async function scopeOtherTabsAwayFromBound(
   }
 }
 
-// Newly created tabs inherit the manifest default stub. While a
-// binding is active we proactively disable the panel on each new
-// tab so the stub (or anything else) doesn't flash up.
+// While a binding is active, proactively disable the panel on each
+// newly created tab so nothing can flash up there.
 chrome.tabs.onCreated.addListener((tab) => {
   if (panelBoundTabId == null || tab.id == null) return;
   if (tab.id === panelBoundTabId) return;
@@ -590,11 +594,9 @@ async function handleMessage(
         );
       }
 
-      // Flip the recording pointer and persist the new bound tab.
       activeTabId = newTabId;
       await store.updateSession({ tab_id: newTabId });
 
-      // Stop the old tab's content script; start the new one's.
       if (oldTabId != null) {
         void chrome.tabs
           .sendMessage(oldTabId, { type: "SESSION_STOPPED" })
