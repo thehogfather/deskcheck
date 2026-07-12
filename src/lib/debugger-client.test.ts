@@ -244,4 +244,36 @@ describe("DebuggerClient.moveTo", () => {
     // Nothing to detach — the failed attach left us unattached.
     expect(fakeDebugger.detach).not.toHaveBeenCalled();
   });
+
+  it("releases the new tab when attach succeeds but a domain enable fails", async () => {
+    const client = new DebuggerClient();
+    await client.attach(1, "https://t1.example.com", () => {});
+    fakeDebugger.detach.mockClear();
+    // attach to tab 2 succeeds, but the first enable rejects (e.g. the
+    // tab navigated to a restricted page in the gap).
+    fakeDebugger.sendCommand.mockRejectedValueOnce(new Error("Cannot access a chrome:// URL"));
+
+    await expect(client.moveTo(2, "https://t2.example.com")).rejects.toThrow();
+
+    // The half-initialised attachment must be released — otherwise tab 2
+    // stays debugger-attached but untracked, and every later attach to it
+    // fails with "Another debugger is already attached".
+    expect(fakeDebugger.detach).toHaveBeenCalledWith({ tabId: 2 });
+
+    // detach() must be a no-op now (nothing tracked as attached).
+    fakeDebugger.detach.mockClear();
+    await client.detach();
+    expect(fakeDebugger.detach).not.toHaveBeenCalled();
+  });
+
+  it("releases the tab when the initial attach() fails on a domain enable", async () => {
+    const client = new DebuggerClient();
+    fakeDebugger.sendCommand.mockRejectedValueOnce(new Error("boom"));
+
+    await expect(
+      client.attach(1, "https://t1.example.com", () => {}),
+    ).rejects.toThrow();
+
+    expect(fakeDebugger.detach).toHaveBeenCalledWith({ tabId: 1 });
+  });
 });

@@ -64,6 +64,14 @@ async function main() {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       return tabs[0];
     },
+    activateTab: async (tabId: number) => {
+      const tab = await chrome.tabs.update(tabId, { active: true });
+      // The tab may live in another window — focus it too, or the
+      // activation is invisible to the user.
+      if (tab?.windowId != null) {
+        await chrome.windows.update(tab.windowId, { focused: true });
+      }
+    },
     onRuntimeMessage: chrome.runtime.onMessage as unknown as SidePanelDeps["onRuntimeMessage"],
     readStorage: (keys: string[]) => chrome.storage.local.get(keys),
   };

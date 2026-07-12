@@ -164,6 +164,37 @@ describe("buildSummary", () => {
       { url: "https://b.example.com", events: 1 },
     ]);
   });
+
+  it("labels a segment seeded by a tab_switch with the from-tab URL", () => {
+    // A session can begin with a switch (start on tab A, switch to B
+    // before anything else is captured). The switch marker belongs to
+    // the from-tab segment, so that segment must carry A's URL — the
+    // event's page_url is B's.
+    const events: TimelineEvent[] = [
+      {
+        seq: 1,
+        timestamp: "2026-04-06T10:00:01.000Z",
+        type: "tab_switch",
+        from_tab_id: 1,
+        from_url: "https://a.example.com",
+        to_tab_id: 2,
+        to_url: "https://b.example.com",
+        page_url: "https://b.example.com",
+      },
+      {
+        seq: 2,
+        timestamp: "2026-04-06T10:00:02.000Z",
+        type: "interaction",
+        subtype: "click",
+        page_url: "https://b.example.com",
+      },
+    ];
+    const summary = buildSummary(events);
+    expect(summary.tabs).toEqual([
+      { url: "https://a.example.com", events: 1 },
+      { url: "https://b.example.com", events: 1 },
+    ]);
+  });
 });
 
 describe("exportSession", () => {

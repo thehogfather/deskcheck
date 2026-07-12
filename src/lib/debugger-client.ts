@@ -64,17 +64,38 @@ export class DebuggerClient {
     currentUrl: string,
     onEvent: EventCallback,
   ): Promise<void> {
-    this.attachedTabId = tabId;
     this.onEvent = onEvent;
     this.pageUrl = currentUrl;
 
-    await chrome.debugger.attach({ tabId }, CDP_VERSION);
-    await chrome.debugger.sendCommand({ tabId }, "Network.enable");
-    await chrome.debugger.sendCommand({ tabId }, "Log.enable");
-    await chrome.debugger.sendCommand({ tabId }, "Runtime.enable");
+    await this.attachAndEnable(tabId);
 
     chrome.debugger.onEvent.addListener(this.handleCdpEvent);
     chrome.debugger.onDetach.addListener(this.handleDetach);
+  }
+
+  // Shared CDP bring-up for attach() and moveTo(): attach to the tab and
+  // enable the protocol domains. If a domain enable fails after the
+  // attach succeeded, the half-initialised attachment is released before
+  // rethrowing — otherwise the tab would stay debugger-attached but
+  // untracked (attachedTabId wouldn't point at it), so detach() could
+  // never release it and every later attach to that tab would fail with
+  // "Another debugger is already attached".
+  private async attachAndEnable(tabId: number): Promise<void> {
+    await chrome.debugger.attach({ tabId }, CDP_VERSION);
+    this.attachedTabId = tabId;
+    try {
+      await chrome.debugger.sendCommand({ tabId }, "Network.enable");
+      await chrome.debugger.sendCommand({ tabId }, "Log.enable");
+      await chrome.debugger.sendCommand({ tabId }, "Runtime.enable");
+    } catch (err) {
+      this.attachedTabId = null;
+      try {
+        await chrome.debugger.detach({ tabId });
+      } catch {
+        // Tab already gone — nothing left attached.
+      }
+      throw err;
+    }
   }
 
   /**
@@ -91,8 +112,9 @@ export class DebuggerClient {
    * Throws if attaching to the new tab fails (e.g. DevTools is already
    * open on it — only one debugger client per tab). The caller is
    * expected to keep the session on the old tab in that case; on throw
-   * `attachedTabId` is left null so a subsequent retry re-attaches
-   * cleanly.
+   * nothing is left attached (a partially-initialised attachment to the
+   * new tab is released) and `attachedTabId` is null, so a subsequent
+   * retry re-attaches cleanly.
    */
   async moveTo(newTabId: number, newUrl: string): Promise<void> {
     const previousTabId = this.attachedTabId;
@@ -108,11 +130,7 @@ export class DebuggerClient {
       // attachedTabId is null between detach and a successful attach so a
       // late onDetach for the old tab cannot match the new target.
       this.attachedTabId = null;
-      await chrome.debugger.attach({ tabId: newTabId }, CDP_VERSION);
-      await chrome.debugger.sendCommand({ tabId: newTabId }, "Network.enable");
-      await chrome.debugger.sendCommand({ tabId: newTabId }, "Log.enable");
-      await chrome.debugger.sendCommand({ tabId: newTabId }, "Runtime.enable");
-      this.attachedTabId = newTabId;
+      await this.attachAndEnable(newTabId);
       this.pageUrl = newUrl;
       this.requestUrls.clear();
     } finally {

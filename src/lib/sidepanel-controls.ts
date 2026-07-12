@@ -137,14 +137,25 @@ export function buildControlsModel(
 
 /**
  * Count timeline events that contribute to "the user has captured
- * something worth shipping or discarding". Pause/Resume markers are
- * bookkeeping, not material events — an empty-paused session shows
- * only the Resume affordance because no Download or Clear is meaningful.
+ * something worth shipping or discarding". Lifecycle markers —
+ * pause/resume and tab-switch — are bookkeeping, not material events:
+ * an empty-paused session shows only the Resume affordance because no
+ * Download or Clear is meaningful, even if the user switched tabs.
+ *
+ * When adding a TimelineEvent type, decide explicitly whether it is a
+ * lifecycle marker (add it to BOOKKEEPING_EVENT_TYPES) or captured
+ * content (do nothing — it counts).
  */
+const BOOKKEEPING_EVENT_TYPES: ReadonlySet<TimelineEvent["type"]> = new Set([
+  "session_paused",
+  "session_resumed",
+  "tab_switch",
+]);
+
 export function countMaterialEvents(events: TimelineEvent[]): number {
   let count = 0;
   for (const event of events) {
-    if (event.type === "session_paused" || event.type === "session_resumed") {
+    if (BOOKKEEPING_EVENT_TYPES.has(event.type)) {
       continue;
     }
     count++;

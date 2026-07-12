@@ -23,6 +23,7 @@ import type {
 } from "../types";
 import type { SessionStatus } from "../lib/session-status";
 import { STORAGE_SESSION } from "../constants";
+import { isExtensionUrl } from "../lib/debugger-client";
 import { cropScreenshot } from "../lib/image-utils";
 import { PRIVACY_REMINDER_LINE } from "../lib/privacy";
 import {
@@ -131,6 +132,12 @@ export interface SidePanelDeps {
    */
   queryActiveTab?: () => Promise<chrome.tabs.Tab | undefined>;
   /**
+   * Activate (and focus the window of) a tab — used by the "Go to
+   * recording tab" offer button. Defaults to chrome.tabs.update +
+   * chrome.windows.update in production. Injectable for tests.
+   */
+  activateTab?: (tabId: number) => Promise<void>;
+  /**
    * chrome.runtime.onMessage shim. The side panel listens for:
    *  - `PICK_ELEMENT_RESULT` from the content script after a "Pick
    *    element" round-trip,
@@ -228,6 +235,16 @@ export async function mountSidePanel(
   // offer instead of the normal controls. null = this panel is on the
   // recording tab (or there is no session) → normal controls.
   let recordingElsewhereTabId: number | null = null;
+  // Feature #7: the tab this panel document belongs to, resolved once
+  // while the panel is VISIBLE (a per-tab panel document loads when it
+  // is first shown on its tab, so the window's active tab at that moment
+  // IS this panel's tab) and cached for the document's lifetime. Hidden
+  // panel documents stay alive when the user switches tabs, so resolving
+  // "own tab" through the active-tab query on every refresh would return
+  // whatever tab the user happens to be on — corrupting the offer state
+  // of every hidden panel that receives a broadcast or focus event.
+  let ownTabId: number | null = null;
+  let ownTabIsExtensionPage = false;
 
   const scrollAnchor = new ScrollAnchor();
 
@@ -578,10 +595,20 @@ export async function mountSidePanel(
     const recId = recordingElsewhereTabId;
     if (recId == null) return;
     try {
-      const c = (globalThis as unknown as { chrome?: typeof chrome }).chrome;
-      if (c?.tabs?.update) await c.tabs.update(recId, { active: true });
+      if (deps.activateTab) {
+        await deps.activateTab(recId);
+        return;
+      }
+      // The recording tab may live in another window — activating it is
+      // invisible unless that window is focused too.
+      const tab = await chrome.tabs.update(recId, { active: true });
+      if (tab?.windowId != null) {
+        await chrome.windows.update(tab.windowId, { focused: true });
+      }
     } catch {
       // The recording tab may have been closed — nothing to focus.
+      // (In jsdom tests without an activateTab shim the bare `chrome`
+      // reference lands here as a ReferenceError.)
     }
   });
 
@@ -732,6 +759,20 @@ export async function mountSidePanel(
     void refreshSessionState();
   };
   onWindowFocusChanged.addListener(focusListener);
+
+  // Same-window refetch (feature #7): a hidden panel document survives
+  // tab switches, and no chrome event fires panel-side when the user
+  // flips back to its tab. Re-evaluate the session/offer state whenever
+  // this document becomes visible again so a switch that happened while
+  // hidden is reflected immediately.
+  const visibilityListener = () => {
+    if (document.visibilityState === "visible") {
+      void refreshSessionState();
+    }
+  };
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", visibilityListener);
+  }
 
   // Runtime message listener — handles PICK_ELEMENT_RESULT (from the
   // content script after element picker) and SCREENSHOT_APPENDED (so
@@ -1098,13 +1139,27 @@ export async function mountSidePanel(
   }
 
   /**
-   * Feature #7: the tab id this panel is bound to. The side panel only
-   * renders on its bound tab (which is the active tab of its window), so
-   * the active tab IS this panel's tab.
+   * Feature #7: the tab id this panel document belongs to. Resolved via
+   * the active-tab query, but ONLY while this document is visible — a
+   * visible per-tab panel is by definition docked beside the window's
+   * active tab. The result is cached for the document's lifetime so
+   * later refreshes (broadcasts, focus changes) arriving while the
+   * panel is hidden cannot mis-resolve it to whichever tab the user is
+   * on. Returns null when the identity is (still) unknown.
    */
   async function resolveOwnTabId(): Promise<number | null> {
+    if (ownTabId != null) return ownTabId;
+    if (
+      typeof document !== "undefined" &&
+      document.visibilityState === "hidden"
+    ) {
+      return null;
+    }
     const tab = await getActiveTab();
-    return tab?.id ?? null;
+    if (!tab || tab.id == null) return null;
+    ownTabId = tab.id;
+    ownTabIsExtensionPage = isExtensionUrl(tab.url);
+    return ownTabId;
   }
 
   /**
@@ -1117,7 +1172,12 @@ export async function mountSidePanel(
    * CLI-launched panel, or the e2e harness that mounts the panel as a
    * regular page) — is its own "active tab" and must never trigger the
    * offer: there is no meaningful web tab to switch recording to. We
-   * detect that case by the active tab's URL and bail out.
+   * detect that case by the resolved tab's URL and bail out.
+   *
+   * When the panel's own identity cannot be resolved (hidden before the
+   * first successful resolution, or a transient tabs.query failure) the
+   * previous binding is KEPT — failing open to null here would render
+   * the full recording controls on a non-recording tab.
    */
   async function updateRecordingBinding(
     recordingTabId: number | null,
@@ -1126,17 +1186,15 @@ export async function mountSidePanel(
       recordingElsewhereTabId = null;
       return;
     }
-    const own = await getActiveTab();
-    if (!own || own.id == null) {
+    const own = await resolveOwnTabId();
+    if (own == null) {
+      return;
+    }
+    if (ownTabIsExtensionPage) {
       recordingElsewhereTabId = null;
       return;
     }
-    if (own.url && own.url.startsWith("chrome-extension://")) {
-      recordingElsewhereTabId = null;
-      return;
-    }
-    recordingElsewhereTabId =
-      own.id !== recordingTabId ? recordingTabId : null;
+    recordingElsewhereTabId = own !== recordingTabId ? recordingTabId : null;
   }
 
   async function refreshSessionState() {
@@ -1186,6 +1244,14 @@ export async function mountSidePanel(
       hideClearDialog();
       clearSelectedElement();
     }
+    // Feature #7: the offer only makes sense while a session is in
+    // flight. Session-end paths (stop, clear, recording-tab closed)
+    // reach panels through this transition without a binding refresh,
+    // so a stale offer must be dropped here or it would permanently
+    // replace the idle controls.
+    if (status === "idle" || status === "stopped") {
+      recordingElsewhereTabId = null;
+    }
     applyControlsModel();
   }
 
@@ -1209,7 +1275,12 @@ export async function mountSidePanel(
     // switch offer and nothing else. Inert in every pre-feature-7 path —
     // recordingElsewhereTabId is only set when GET_SESSION_STATE reports
     // an in-flight session bound to a different tab than this panel.
-    if (recordingElsewhereTabId != null) {
+    // Belt-and-braces: also require an in-flight status so a stale
+    // binding can never shadow the pre/post-session controls.
+    if (
+      recordingElsewhereTabId != null &&
+      (status === "running" || status === "paused")
+    ) {
       renderSwitchOffer();
       return;
     }
@@ -1538,6 +1609,7 @@ export async function mountSidePanel(
       document.removeEventListener("keydown", escapeHandler);
       onChanged.removeListener(sessionListener);
       onWindowFocusChanged.removeListener(focusListener);
+      document.removeEventListener("visibilitychange", visibilityListener);
       if (deps.onRuntimeMessage) {
         deps.onRuntimeMessage.removeListener(runtimeListener);
       } else if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {

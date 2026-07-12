@@ -1468,4 +1468,102 @@ describe("feature-7: switch-recording offer", () => {
     expect(h.deps.root.querySelector("#switch-offer")).toBeNull();
     expect(h.deps.root.querySelector("#pause-btn")).not.toBeNull();
   });
+
+  it("drops a stale offer when the session ends (no broadcast, storage-driven idle)", async () => {
+    const h = makeHarness();
+    h.setRecordingTab(42);
+    h.setOwnTab(99);
+    await mountSidePanel(h.deps);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.deps.root.querySelector("#switch-offer")).not.toBeNull();
+
+    // The session stops from another tab: no RECORDING_TAB_CHANGED is
+    // broadcast — this panel only sees the session storage change. The
+    // offer must give way to the normal pre-session controls, not stick
+    // around as a dead end.
+    h.setRecordingTab(null);
+    h.fireStorage({
+      deskcheck_session: {
+        oldValue: { id: "s1", end_time: null },
+        newValue: { id: "s1", end_time: "2026-04-07T12:00:30.000Z" },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(h.deps.root.querySelector("#switch-offer")).toBeNull();
+    expect(h.deps.root.querySelector("#start-btn")).not.toBeNull();
+  });
+
+  it("keeps its own tab identity when refreshed while hidden (active tab is elsewhere)", async () => {
+    // This panel belongs to the recording tab (42). The user flips to
+    // tab 99: the panel document survives hidden, and a broadcast or
+    // focus event can reach it while the ACTIVE tab is 99. Its own-tab
+    // identity must not follow the active-tab query — otherwise the
+    // recording tab's own panel would offer to "switch recording here".
+    const h = makeHarness();
+    h.setRecordingTab(42);
+    h.setOwnTab(42);
+    await mountSidePanel(h.deps);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.deps.root.querySelector("#switch-offer")).toBeNull();
+
+    h.setOwnTab(99); // the active tab is now 99; this panel is still tab 42's
+    h.fireRuntimeMessage({ type: "RECORDING_TAB_CHANGED", tabId: 42 });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(h.deps.root.querySelector("#switch-offer")).toBeNull();
+    expect(h.deps.root.querySelector("#pause-btn")).not.toBeNull();
+  });
+
+  it("keeps the previous binding when the own-tab query transiently fails (no fail-open)", async () => {
+    const h = makeHarness();
+    h.setRecordingTab(42);
+    h.setOwnTab(99);
+    await mountSidePanel(h.deps);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.deps.root.querySelector("#switch-offer")).not.toBeNull();
+
+    // A refresh whose own-tab resolution fails must NOT clear the offer
+    // and render full recording controls on this non-recording tab.
+    // (Identity is cached from the first resolution, so a later query
+    // failure is irrelevant.)
+    h.setOwnTab(null);
+    h.fireFocus(7);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(h.deps.root.querySelector("#switch-offer")).not.toBeNull();
+    expect(h.deps.root.querySelector("#pause-btn")).toBeNull();
+  });
+
+  it("clicking 'Go to recording tab' activates the recording tab via the activateTab dep", async () => {
+    const h = makeHarness();
+    const activated: number[] = [];
+    h.deps.activateTab = async (tabId: number) => {
+      activated.push(tabId);
+    };
+    h.setRecordingTab(42);
+    h.setOwnTab(99);
+    await mountSidePanel(h.deps);
+    await new Promise((r) => setTimeout(r, 0));
+
+    h.deps.root.querySelector<HTMLButtonElement>("#goto-recording-tab-btn")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(activated).toEqual([42]);
+  });
+
+  it("re-evaluates the session state when the document becomes visible again", async () => {
+    const h = makeHarness();
+    h.setRecordingTab(42);
+    h.setOwnTab(42);
+    await mountSidePanel(h.deps);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const before = h.sent.filter((m) => m.type === "GET_SESSION_STATE").length;
+    document.dispatchEvent(new Event("visibilitychange"));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const after = h.sent.filter((m) => m.type === "GET_SESSION_STATE").length;
+    expect(after).toBe(before + 1);
+  });
 });

@@ -216,4 +216,110 @@ describe("service worker SWITCH_RECORDING_TAB (feature #7)", () => {
     };
     expect(state.activeTabId).toBe(42);
   });
+
+  it("appends the tab_switch marker BEFORE events from the new tab (positional attribution)", async () => {
+    await startSessionOnTab42();
+
+    // CDP capture on the new tab starts the moment the debugger moves —
+    // before the handler finishes. Simulate a new-tab network failure
+    // arriving in that window (during the content-script injection step,
+    // which runs after moveTo) and pin that the marker still precedes it
+    // in the timeline: the exporter attributes events to tabs by their
+    // position relative to the marker.
+    const cdpListener = mockChrome.debugger.onEvent.addListener.mock.calls[0][0] as (
+      source: { tabId: number },
+      method: string,
+      params: Record<string, unknown>,
+    ) => void;
+    mockChrome.scripting.executeScript.mockImplementationOnce(async () => {
+      cdpListener({ tabId: 99 }, "Network.requestWillBeSent", {
+        requestId: "r1",
+        request: { url: "https://example.com/the-other-tab/api", method: "GET" },
+      });
+      cdpListener({ tabId: 99 }, "Network.responseReceived", {
+        requestId: "r1",
+        response: { status: 500, statusText: "boom", url: "https://example.com/the-other-tab/api" },
+      });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    await dispatch(messageHandler, { type: "SWITCH_RECORDING_TAB", tabId: 99 });
+
+    const snapshot = (await dispatch(messageHandler, { type: "GET_EVENTS_SNAPSHOT" })) as {
+      events: Array<Record<string, unknown>>;
+    };
+    const markerIdx = snapshot.events.findIndex((e) => e.type === "tab_switch");
+    const errorIdx = snapshot.events.findIndex((e) => e.type === "network_error");
+    expect(markerIdx).toBeGreaterThanOrEqual(0);
+    expect(errorIdx).toBeGreaterThanOrEqual(0);
+    expect(markerIdx).toBeLessThan(errorIdx);
+  });
+
+  it("appends a compensating reverse marker when the move fails after the marker was logged", async () => {
+    await startSessionOnTab42();
+    mockChrome.debugger.attach.mockRejectedValueOnce(new Error("DevTools already open"));
+
+    await dispatch(messageHandler, { type: "SWITCH_RECORDING_TAB", tabId: 99 });
+
+    const snapshot = (await dispatch(messageHandler, { type: "GET_EVENTS_SNAPSHOT" })) as {
+      events: Array<Record<string, unknown>>;
+    };
+    const switches = snapshot.events.filter((e) => e.type === "tab_switch");
+    expect(switches).toHaveLength(2);
+    expect(switches[0]).toMatchObject({ from_tab_id: 42, to_tab_id: 99 });
+    expect(switches[1]).toMatchObject({ from_tab_id: 99, to_tab_id: 42 });
+  });
+
+  it("strips #_deskcheck= handoff markers from the tab_switch urls (defence-in-depth)", async () => {
+    const token = "a".repeat(64);
+    const marker = `#_deskcheck=sess-1:${token}:8123:v1`;
+    mockChrome.tabs.get = vi.fn(async (id: number) => ({
+      id,
+      url:
+        id === 99
+          ? `https://example.com/the-other-tab${marker}`
+          : `https://example.com/recording-tab${marker}`,
+      active: true,
+      windowId: 7,
+    })) as Fn;
+
+    await startSessionOnTab42();
+    await dispatch(messageHandler, { type: "SWITCH_RECORDING_TAB", tabId: 99 });
+
+    const snapshot = (await dispatch(messageHandler, { type: "GET_EVENTS_SNAPSHOT" })) as {
+      events: Array<Record<string, unknown>>;
+    };
+    const sw = snapshot.events.find((e) => e.type === "tab_switch") as Record<string, string>;
+    expect(sw.from_url).toBe("https://example.com/recording-tab");
+    expect(sw.to_url).toBe("https://example.com/the-other-tab");
+    expect(sw.page_url).not.toContain("_deskcheck");
+    expect(JSON.stringify(sw)).not.toContain(token);
+  });
+
+  it("releases offer panels when the session stops (single-bound-tab invariant)", async () => {
+    // Bind the panel to tab 42 pre-session via an action click, then
+    // start recording there.
+    const onClicked = mockChrome.action.onClicked.addListener.mock.calls[0][0] as (
+      tab: { id: number },
+    ) => void;
+    onClicked({ id: 42 });
+    await new Promise((r) => setTimeout(r, 0));
+    await startSessionOnTab42();
+
+    // Mid-session action click on tab 99 → offer path: panel enabled on
+    // 99 and deliberately NOT scoped away.
+    mockChrome.sidePanel.setOptions.mockClear();
+    onClicked({ id: 99 });
+    await new Promise((r) => setTimeout(r, 0));
+    const enables = mockChrome.sidePanel.setOptions.mock.calls.map((c: unknown[]) => c[0]);
+    expect(enables).toContainEqual(expect.objectContaining({ tabId: 99, enabled: true }));
+
+    // Stop the session — the offer died with it, so tab 99's panel must
+    // be scoped away again while the bound tab keeps its panel.
+    mockChrome.sidePanel.setOptions.mockClear();
+    await dispatch(messageHandler, { type: "STOP_SESSION" });
+    const calls = mockChrome.sidePanel.setOptions.mock.calls.map((c: unknown[]) => c[0]);
+    expect(calls).toContainEqual(expect.objectContaining({ tabId: 99, enabled: false }));
+    expect(calls).not.toContainEqual(expect.objectContaining({ tabId: 42, enabled: false }));
+  });
 });

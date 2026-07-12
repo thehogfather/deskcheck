@@ -174,7 +174,12 @@ export function buildSummary(events: TimelineEvent[]): SessionSummary {
   for (const event of events) {
     pages.add(event.page_url);
     if (currentTab === null) {
-      currentTab = { url: event.page_url, events: 0 };
+      // A segment seeded by a tab_switch belongs to the from-tab (the
+      // marker is counted under the tab being left), so label it with
+      // from_url — the event's page_url is the to-tab's URL.
+      const url =
+        event.type === "tab_switch" ? event.from_url : event.page_url;
+      currentTab = { url, events: 0 };
       tabs.push(currentTab);
     }
     currentTab.events++;
