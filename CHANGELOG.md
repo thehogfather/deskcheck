@@ -2,17 +2,9 @@
 
 All notable changes to DeskCheck will be documented in this file.
 
-Format based on [Keep a Changelog](https://keepachangelog.com/).
-
-## [Unreleased]
-
-### Changed
-- Side panel button icons swapped from Unicode glyphs (rendered via CSS `mask-image` data URLs) to inline Lucide SVG nodes for a consistent stroke-based aesthetic. Each icon is imported individually so the bundle only pays for what is used (delta: +756 bytes gzipped).
-- `iconBtn()` accepts `string | Node` so call sites pass an SVG node directly. New `lucideNode(IconNode)` helper sets `aria-hidden="true"` at construction time, keeping the button's accessible name on `.btn-label` only.
-- Pause/Resume dynamic swap rewritten from `textContent =` to `replaceChildren(lucideNode(...))` so the SVG node is swapped atomically.
-
-### Removed
-- Per-id `mask-image` rules for side-panel button icons (replaced by a single generic `.btn-icon svg` sizing rule).
+Since v0.2.0, sections are generated at release time from conventional commit
+subjects (`scripts/release-notes.mjs`) — the same notes published on each
+[GitHub Release](https://github.com/thehogfather/deskcheck/releases).
 
 ## [0.2.0] - 2026-04-06
 

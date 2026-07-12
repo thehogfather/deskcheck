@@ -1,0 +1,56 @@
+name: Release
+
+# Publishes a prebuilt extension zip as a GitHub Release whenever a version
+# tag is pushed. Cut releases locally with `make release-patch|minor|major`,
+# then `git push origin main --follow-tags`.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags, needed for release notes
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify tag matches manifest versions
+        run: |
+          make verify-version
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME}" != "v${PKG_VERSION}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_VERSION}" >&2
+            exit 1
+          fi
+
+      - run: make test
+
+      - name: Build and package extension
+        run: make package
+
+      - name: Generate release notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          node scripts/release-notes.mjs notes "$PREV_TAG" "$GITHUB_REF_NAME" > build/release-notes.md
+          cat build/release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            build/deskcheck-*.zip \
+            --title "DeskCheck $GITHUB_REF_NAME" \
+            --notes-file build/release-notes.md
